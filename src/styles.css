@@ -315,6 +315,14 @@ textarea {
   border-radius: 20px;
 }
 
+.entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
 .entry-live {
   display: inline-block;
   margin-top: 8px;
@@ -337,6 +345,41 @@ textarea {
 
 .entry-system {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.entry-kind-tool {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    rgba(255, 255, 255, 0.04);
+}
+
+.entry-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.entry-badge-pending {
+  color: #ffd676;
+  background: rgba(253, 200, 84, 0.16);
+}
+
+.entry-badge-success,
+.entry-badge-approved {
+  color: #9cf7d2;
+  background: rgba(156, 247, 210, 0.12);
+}
+
+.entry-badge-error,
+.entry-badge-denied {
+  color: #ffb3b3;
+  background: rgba(242, 93, 93, 0.16);
 }
 
 .approval-modal {

@@ -5,9 +5,12 @@ type SessionState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking
 type TranscriptEntry = {
   id: string;
   order: number;
+  kind: 'speech' | 'tool' | 'system';
   speaker: 'user' | 'assistant' | 'system';
   text: string;
   final: boolean;
+  toolName?: string;
+  status?: 'pending' | 'success' | 'error' | 'approved' | 'denied';
 };
 
 type ApprovalRequest = {
@@ -43,6 +46,7 @@ function App() {
     {
       id: 'system-intro',
       order: 0,
+      kind: 'system',
       speaker: 'system',
       text: 'Press Start Conversation once to open the voice session. Press Stop Conversation to end it.',
       final: true,
@@ -185,11 +189,20 @@ function App() {
         void playerRef.current?.appendBase64(event.audioBase64);
         return;
       case 'approval-request':
+        appendToolEntry(
+          event.request.toolName,
+          event.request.reason,
+          'pending',
+          `approval-${event.request.id}`,
+        );
         setApproval(event.request);
         return;
       case 'tool-result':
-        appendSystemMessage(
-          `${event.ok ? 'Tool completed' : 'Tool failed'}: ${event.name} - ${event.output}`,
+        appendToolEntry(
+          event.name,
+          event.output,
+          event.ok ? 'success' : 'error',
+          `result-${event.name}-${crypto.randomUUID()}`,
         );
         return;
       case 'error':
@@ -206,6 +219,7 @@ function App() {
     const nextEntry: TranscriptEntry = {
       id: crypto.randomUUID(),
       order: entryOrderRef.current++,
+      kind: 'system',
       speaker: 'system',
       text,
       final: true,
@@ -215,6 +229,26 @@ function App() {
       ...current,
       nextEntry,
     ].sort((left, right) => left.order - right.order));
+  }
+
+  function appendToolEntry(
+    toolName: string,
+    text: string,
+    status: TranscriptEntry['status'],
+    id?: string,
+  ) {
+    const nextEntry: TranscriptEntry = {
+      id: id ?? crypto.randomUUID(),
+      order: entryOrderRef.current++,
+      kind: 'tool',
+      speaker: 'system',
+      text,
+      final: true,
+      toolName,
+      status,
+    };
+
+    setEntries((current) => [...current, nextEntry].sort((left, right) => left.order - right.order));
   }
 
   function upsertTranscript(
@@ -231,9 +265,16 @@ function App() {
       const index = current.findIndex((entry) => entry.id === id);
 
       if (index === -1) {
-        return [...current, { id, order: entryOrderRef.current++, speaker, text, final: isFinal }].sort(
-          (left, right) => left.order - right.order,
-        );
+        const nextEntry: TranscriptEntry = {
+          id,
+          order: entryOrderRef.current++,
+          kind: 'speech',
+          speaker,
+          text,
+          final: isFinal,
+        };
+
+        return [...current, nextEntry].sort((left, right) => left.order - right.order);
       }
 
       const next = [...current];
@@ -248,8 +289,11 @@ function App() {
     }
 
     bridge?.resolveApproval(approval.id, approved);
-    appendSystemMessage(
-      `${approved ? 'Approved' : 'Denied'} ${approval.toolName}: ${approval.reason}`,
+    appendToolEntry(
+      approval.toolName,
+      approval.reason,
+      approved ? 'approved' : 'denied',
+      `approval-resolution-${approval.id}`,
     );
     setApproval(null);
   }
@@ -319,8 +363,20 @@ function App() {
 
         <div className="transcript-list" ref={transcriptListRef}>
           {entries.map((entry) => (
-            <article key={entry.id} className={`entry entry-${entry.speaker}`}>
-              <span className="entry-speaker">{entry.speaker}</span>
+            <article
+              key={entry.id}
+              className={`entry entry-${entry.speaker} entry-kind-${entry.kind} ${
+                entry.status ? `entry-status-${entry.status}` : ''
+              }`}
+            >
+              <div className="entry-header">
+                <span className="entry-speaker">
+                  {entry.kind === 'tool' ? entry.toolName ?? 'tool' : entry.speaker}
+                </span>
+                {entry.kind === 'tool' && entry.status ? (
+                  <span className={`entry-badge entry-badge-${entry.status}`}>{entry.status}</span>
+                ) : null}
+              </div>
               <p>{entry.text}</p>
               {!entry.final ? <span className="entry-live">live</span> : null}
             </article>
