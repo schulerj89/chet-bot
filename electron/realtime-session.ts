@@ -114,7 +114,6 @@ export class RealtimeSession {
     this.send({
       type: 'session.update',
       session: {
-        type: 'realtime',
         instructions: [
           'You are Chet Bot, a voice-first desktop assistant.',
           'Keep replies concise and conversational because the user hears them aloud.',
@@ -123,21 +122,16 @@ export class RealtimeSession {
           'Never imply that a machine-affecting action already happened before the tool succeeds.',
           'If the user asks for something risky or unclear, ask one brief clarifying question.',
         ].join(' '),
-        audio: {
-          input: {
-            format: {
-              type: 'audio/pcm',
-            },
-            turn_detection: {
-              type: 'server_vad',
-            },
-          },
-          output: {
-            format: {
-              type: 'audio/pcm',
-            },
-            voice: this.voice,
-          },
+        voice: this.voice,
+        input_audio_format: 'pcm16',
+        output_audio_format: 'pcm16',
+        input_audio_transcription: {
+          model: 'gpt-4o-mini-transcribe',
+        },
+        turn_detection: {
+          type: 'server_vad',
+          create_response: true,
+          interrupt_response: true,
         },
         tools: getToolDefinitions(),
       },

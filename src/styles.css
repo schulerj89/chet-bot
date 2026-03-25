@@ -89,6 +89,100 @@ textarea {
   flex-wrap: wrap;
 }
 
+.voice-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.08), transparent 58%),
+    rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+
+.voice-orb::before,
+.voice-orb::after {
+  content: "";
+  position: absolute;
+  inset: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  opacity: 0.4;
+}
+
+.voice-orb::after {
+  inset: 14px;
+}
+
+.voice-orb-core {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 108px;
+  height: 108px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #99f6e4 0%, #60a5fa 100%);
+  box-shadow: 0 0 0 18px rgba(98, 180, 255, 0.08);
+}
+
+.voice-orb-core span {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(4, 17, 27, 0.78);
+}
+
+.voice-meters {
+  position: absolute;
+  bottom: 22px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.voice-meters i {
+  width: 10px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  transition:
+    height 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.voice-meters i:nth-child(2),
+.voice-meters i:nth-child(4) {
+  height: 28px;
+}
+
+.voice-meters i:nth-child(3) {
+  height: 38px;
+}
+
+.voice-meters .meter-active {
+  background: #9cf7d2;
+  transform: translateY(-4px);
+}
+
+.voice-orb-listening .voice-orb-core {
+  animation: pulse-listening 1.4s ease-in-out infinite;
+}
+
+.voice-orb-thinking .voice-orb-core,
+.voice-orb-connecting .voice-orb-core {
+  animation: pulse-thinking 1.2s linear infinite;
+}
+
+.voice-orb-speaking .voice-orb-core {
+  animation: pulse-speaking 0.8s ease-in-out infinite;
+}
+
+.voice-orb-error .voice-orb-core {
+  background: linear-gradient(135deg, #ff8f8f 0%, #ffb86f 100%);
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -265,5 +359,41 @@ textarea {
 
   .talk-button {
     min-height: 84px;
+  }
+}
+
+@keyframes pulse-listening {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 18px rgba(98, 180, 255, 0.08);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 28px rgba(98, 180, 255, 0.16);
+  }
+}
+
+@keyframes pulse-thinking {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.03);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes pulse-speaking {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 18px rgba(98, 180, 255, 0.08);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 32px rgba(156, 247, 210, 0.18);
   }
 }

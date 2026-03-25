@@ -34,6 +34,7 @@ function App() {
     voice: 'alloy',
   });
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  const [audioLevel, setAudioLevel] = useState(0);
   const [entries, setEntries] = useState<TranscriptEntry[]>([
     {
       id: 'system-intro',
@@ -93,7 +94,8 @@ function App() {
     }
 
     try {
-      const recorder = new AudioRecorder((audioBase64) => {
+      const recorder = new AudioRecorder((audioBase64, level) => {
+        setAudioLevel(level);
         window.chetBot.sendAudioChunk(audioBase64);
       });
 
@@ -116,6 +118,7 @@ function App() {
     setApproval(null);
     await recorderRef.current?.stop();
     recorderRef.current = null;
+    setAudioLevel(0);
     playerRef.current?.flush();
     await window.chetBot.stopSession();
     setSessionState('stopped');
@@ -210,6 +213,23 @@ function App() {
           <span>{statusDetail}</span>
         </div>
 
+        <div className={`voice-orb voice-orb-${sessionState}`}>
+          <div className="voice-orb-core">
+            <span />
+          </div>
+          <div className="voice-meters" aria-hidden="true">
+            {Array.from({ length: 5 }).map((_, index) => {
+              const active = audioLevel > index * 0.12;
+              return (
+                <i
+                  key={index}
+                  className={active && sessionState === 'listening' ? 'meter-active' : ''}
+                />
+              );
+            })}
+          </div>
+        </div>
+
         <button className={`talk-button ${isActive ? 'active' : ''}`} onClick={toggleSession}>
           {isActive ? 'Stop Conversation' : 'Start Conversation'}
         </button>
@@ -269,13 +289,13 @@ function App() {
 }
 
 class AudioRecorder {
-  private readonly onChunk: (audioBase64: string) => void;
+  private readonly onChunk: (audioBase64: string, level: number) => void;
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
 
-  constructor(onChunk: (audioBase64: string) => void) {
+  constructor(onChunk: (audioBase64: string, level: number) => void) {
     this.onChunk = onChunk;
   }
 
@@ -295,7 +315,7 @@ class AudioRecorder {
       const input = event.inputBuffer.getChannelData(0);
       const downsampled = downsampleBuffer(input, this.audioContext?.sampleRate ?? 48_000, 24_000);
       const audioBase64 = encodePcm16ToBase64(downsampled);
-      this.onChunk(audioBase64);
+      this.onChunk(audioBase64, getAudioLevel(input));
     };
 
     this.source.connect(this.processor);
@@ -316,6 +336,16 @@ class AudioRecorder {
     this.mediaStream = null;
     this.audioContext = null;
   }
+}
+
+function getAudioLevel(buffer: Float32Array) {
+  let peak = 0;
+
+  for (let index = 0; index < buffer.length; index += 1) {
+    peak = Math.max(peak, Math.abs(buffer[index]));
+  }
+
+  return Math.min(1, peak * 2.4);
 }
 
 class PcmAudioPlayer {

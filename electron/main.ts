@@ -30,7 +30,6 @@ function createMainWindow() {
 
   if (isDev) {
     void mainWindow.loadURL(rendererUrl ?? 'http://127.0.0.1:5173');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     void mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'));
   }
