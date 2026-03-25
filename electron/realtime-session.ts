@@ -3,8 +3,8 @@ import { executeToolCall, getToolDefinitions, type ApprovalRequest } from './too
 
 export type RendererEvent =
   | { type: 'session-status'; status: SessionStatus; detail?: string }
-  | { type: 'assistant-transcript'; text: string; itemId?: string }
-  | { type: 'user-transcript'; text: string; itemId?: string }
+  | { type: 'assistant-transcript'; text: string; itemId?: string; final?: boolean }
+  | { type: 'user-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'assistant-audio'; audioBase64: string }
   | { type: 'approval-request'; request: ApprovalRequest }
   | { type: 'tool-result'; name: string; output: string; ok: boolean }
@@ -172,6 +172,7 @@ export class RealtimeSession {
           type: 'assistant-transcript',
           text: this.responseTranscript,
           itemId: typeof event.item_id === 'string' ? event.item_id : undefined,
+          final: false,
         });
         return;
       }
@@ -182,6 +183,7 @@ export class RealtimeSession {
           type: 'assistant-transcript',
           text: transcript,
           itemId: typeof event.item_id === 'string' ? event.item_id : undefined,
+          final: true,
         });
         this.onEvent({ type: 'session-status', status: 'listening', detail: 'Listening...' });
         return;
@@ -193,6 +195,7 @@ export class RealtimeSession {
             type: 'user-transcript',
             text: transcript,
             itemId: typeof event.item_id === 'string' ? event.item_id : undefined,
+            final: true,
           });
         }
         return;

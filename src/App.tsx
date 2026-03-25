@@ -7,6 +7,7 @@ type TranscriptEntry = {
   order: number;
   speaker: 'user' | 'assistant' | 'system';
   text: string;
+  final: boolean;
 };
 
 type ApprovalRequest = {
@@ -18,8 +19,8 @@ type ApprovalRequest = {
 
 type RealtimeEvent =
   | { type: 'session-status'; status: SessionState; detail?: string }
-  | { type: 'assistant-transcript'; text: string; itemId?: string }
-  | { type: 'user-transcript'; text: string; itemId?: string }
+  | { type: 'assistant-transcript'; text: string; itemId?: string; final?: boolean }
+  | { type: 'user-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'assistant-audio'; audioBase64: string }
   | { type: 'approval-request'; request: ApprovalRequest }
   | { type: 'tool-result'; name: string; output: string; ok: boolean }
@@ -44,6 +45,7 @@ function App() {
       order: 0,
       speaker: 'system',
       text: 'Press Start Conversation once to open the voice session. Press Stop Conversation to end it.',
+      final: true,
     },
   ]);
   const recorderRef = useRef<AudioRecorder | null>(null);
@@ -169,10 +171,15 @@ function App() {
         setStatusDetail(event.detail ?? '');
         return;
       case 'assistant-transcript':
-        upsertTranscript(event.itemId ?? `assistant-${event.text.length}`, 'assistant', event.text);
+        upsertTranscript(
+          event.itemId ?? `assistant-live`,
+          'assistant',
+          event.text,
+          event.final ?? false,
+        );
         return;
       case 'user-transcript':
-        upsertTranscript(event.itemId ?? `user-${event.text.length}`, 'user', event.text);
+        upsertTranscript(event.itemId ?? `user-live`, 'user', event.text, event.final ?? true);
         return;
       case 'assistant-audio':
         void playerRef.current?.appendBase64(event.audioBase64);
@@ -201,6 +208,7 @@ function App() {
       order: entryOrderRef.current++,
       speaker: 'system',
       text,
+      final: true,
     };
 
     setEntries((current) => [
@@ -209,7 +217,12 @@ function App() {
     ].sort((left, right) => left.order - right.order));
   }
 
-  function upsertTranscript(id: string, speaker: TranscriptEntry['speaker'], text: string) {
+  function upsertTranscript(
+    id: string,
+    speaker: TranscriptEntry['speaker'],
+    text: string,
+    isFinal: boolean,
+  ) {
     if (!text.trim()) {
       return;
     }
@@ -218,13 +231,13 @@ function App() {
       const index = current.findIndex((entry) => entry.id === id);
 
       if (index === -1) {
-        return [...current, { id, order: entryOrderRef.current++, speaker, text }].sort(
+        return [...current, { id, order: entryOrderRef.current++, speaker, text, final: isFinal }].sort(
           (left, right) => left.order - right.order,
         );
       }
 
       const next = [...current];
-      next[index] = { ...next[index], text };
+      next[index] = { ...next[index], text, final: isFinal || next[index].final };
       return next.sort((left, right) => left.order - right.order);
     });
   }
@@ -309,6 +322,7 @@ function App() {
             <article key={entry.id} className={`entry entry-${entry.speaker}`}>
               <span className="entry-speaker">{entry.speaker}</span>
               <p>{entry.text}</p>
+              {!entry.final ? <span className="entry-live">live</span> : null}
             </article>
           ))}
         </div>
