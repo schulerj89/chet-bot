@@ -2,6 +2,10 @@
 
 Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 
+## Screenshot
+
+![Chet Bot desktop app](docs/app-screenshot.png)
+
 ## Current behavior
 
 - Press `Start Conversation` once to open a live session.
