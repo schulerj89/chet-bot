@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.electron.json && vite build",
     "preview": "vite preview",
     "start": "electron .",
-    "typecheck": "tsc -p tsconfig.electron.json && tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.electron.json && tsc -p tsconfig.json --noEmit",
+    "test:e2e": "npm run build && playwright test"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
@@ -22,6 +23,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/ws": "^8.18.1",
+    "@playwright/test": "^1.55.0",
     "@vitejs/plugin-react": "^5.1.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",

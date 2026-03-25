@@ -25,9 +25,11 @@ type RealtimeEvent =
   | { type: 'error'; message: string };
 
 function App() {
+  const bridge = window.chetBot;
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [statusDetail, setStatusDetail] = useState('Ready.');
   const [isActive, setIsActive] = useState(false);
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
   const [config, setConfig] = useState({
     hasApiKey: false,
     model: 'gpt-realtime',
@@ -46,19 +48,31 @@ function App() {
   const playerRef = useRef<PcmAudioPlayer | null>(null);
 
   useEffect(() => {
-    const detach = window.chetBot.onEvent((event: RealtimeEvent) => {
+    if (!bridge) {
+      setBridgeError('Electron bridge not found. Open the app window, not the raw Vite page in a browser.');
+      return;
+    }
+
+    const detach = bridge.onEvent((event: RealtimeEvent) => {
       handleRealtimeEvent(event);
     });
 
-    void window.chetBot.getConfig().then(setConfig);
-    playerRef.current = new PcmAudioPlayer();
+    void bridge.getConfig().then(setConfig).catch((error: unknown) => {
+      setBridgeError(error instanceof Error ? error.message : 'Unable to load desktop config.');
+    });
+
+    try {
+      playerRef.current = new PcmAudioPlayer();
+    } catch (error) {
+      setBridgeError(error instanceof Error ? error.message : 'Unable to initialize audio output.');
+    }
 
     return () => {
       detach();
       void recorderRef.current?.stop();
       playerRef.current?.dispose();
     };
-  }, []);
+  }, [bridge]);
 
   const statusLabel = useMemo(() => {
     switch (sessionState) {
@@ -80,12 +94,17 @@ function App() {
   }, [sessionState]);
 
   async function toggleSession() {
+    if (!bridge) {
+      setBridgeError('Electron bridge not found. Restart the desktop app from Electron.');
+      return;
+    }
+
     if (isActive) {
       await stopConversation();
       return;
     }
 
-    const response = await window.chetBot.startSession();
+    const response = await bridge.startSession();
 
     if (!response.ok) {
       setSessionState('error');
@@ -96,7 +115,7 @@ function App() {
     try {
       const recorder = new AudioRecorder((audioBase64, level) => {
         setAudioLevel(level);
-        window.chetBot.sendAudioChunk(audioBase64);
+        bridge.sendAudioChunk(audioBase64);
       });
 
       await recorder.start();
@@ -105,7 +124,7 @@ function App() {
       setSessionState('connecting');
       setStatusDetail('Opening realtime voice session...');
     } catch (error) {
-      await window.chetBot.stopSession();
+      await bridge.stopSession();
       setSessionState('error');
       setStatusDetail(
         error instanceof Error ? error.message : 'Unable to access the microphone.',
@@ -114,13 +133,17 @@ function App() {
   }
 
   async function stopConversation() {
+    if (!bridge) {
+      return;
+    }
+
     setIsActive(false);
     setApproval(null);
     await recorderRef.current?.stop();
     recorderRef.current = null;
     setAudioLevel(0);
     playerRef.current?.flush();
-    await window.chetBot.stopSession();
+    await bridge.stopSession();
     setSessionState('stopped');
     setStatusDetail('Conversation stopped.');
   }
@@ -192,7 +215,7 @@ function App() {
       return;
     }
 
-    window.chetBot.resolveApproval(approval.id, approved);
+    bridge?.resolveApproval(approval.id, approved);
     appendSystemMessage(
       `${approved ? 'Approved' : 'Denied'} ${approval.toolName}: ${approval.reason}`,
     );
@@ -213,6 +236,8 @@ function App() {
           <span>{statusDetail}</span>
         </div>
 
+        {bridgeError ? <div className="bridge-alert">{bridgeError}</div> : null}
+
         <div className={`voice-orb voice-orb-${sessionState}`}>
           <div className="voice-orb-core">
             <span />
@@ -230,7 +255,11 @@ function App() {
           </div>
         </div>
 
-        <button className={`talk-button ${isActive ? 'active' : ''}`} onClick={toggleSession}>
+        <button
+          className={`talk-button ${isActive ? 'active' : ''}`}
+          onClick={toggleSession}
+          disabled={!bridge}
+        >
           {isActive ? 'Stop Conversation' : 'Start Conversation'}
         </button>
 
