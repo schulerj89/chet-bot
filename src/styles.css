@@ -1,0 +1,269 @@
+:root {
+  font-family: "Segoe UI", "Inter", sans-serif;
+  color: #e8edf2;
+  background:
+    radial-gradient(circle at top left, rgba(48, 125, 246, 0.28), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(15, 199, 176, 0.18), transparent 25%),
+    linear-gradient(160deg, #081019 0%, #0f1723 52%, #081019 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 24px;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.hero-panel,
+.transcript-panel,
+.approval-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
+  background: rgba(10, 15, 22, 0.82);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(20px);
+}
+
+.hero-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 32px;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  color: #8db9ff;
+}
+
+.hero-panel h1,
+.transcript-panel h2,
+.approval-card h2 {
+  margin: 0;
+  font-size: clamp(2.3rem, 4vw, 3.4rem);
+  line-height: 0.98;
+}
+
+.lede,
+.panel-header p,
+.entry p,
+.approval-card p,
+.status-row span {
+  margin: 0;
+  color: rgba(232, 237, 242, 0.78);
+  line-height: 1.5;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 110px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.status-listening,
+.status-speaking {
+  background: rgba(15, 199, 176, 0.18);
+  color: #8cf1dc;
+}
+
+.status-thinking,
+.status-connecting {
+  background: rgba(253, 200, 84, 0.18);
+  color: #ffd676;
+}
+
+.status-error {
+  background: rgba(242, 93, 93, 0.18);
+  color: #ff9e9e;
+}
+
+.talk-button,
+.primary-button,
+.secondary-button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease;
+}
+
+.talk-button {
+  min-height: 112px;
+  padding: 24px 28px;
+  font-size: 1.18rem;
+  font-weight: 800;
+  color: #04111b;
+  background: linear-gradient(135deg, #97f6ea 0%, #69b6ff 100%);
+  box-shadow: 0 18px 36px rgba(66, 154, 255, 0.26);
+}
+
+.talk-button.active {
+  color: #f8fbff;
+  background: linear-gradient(135deg, #ff7b7b 0%, #ffb36b 100%);
+  box-shadow: 0 18px 36px rgba(255, 110, 110, 0.24);
+}
+
+.talk-button:hover,
+.primary-button:hover,
+.secondary-button:hover {
+  transform: translateY(-1px);
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.config-grid > div {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.meta-label,
+.entry-speaker {
+  display: block;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: rgba(232, 237, 242, 0.48);
+}
+
+.transcript-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 24px;
+}
+
+.panel-header {
+  margin-bottom: 16px;
+}
+
+.transcript-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.entry {
+  padding: 16px 18px;
+  border-radius: 20px;
+}
+
+.entry-user {
+  background: rgba(15, 199, 176, 0.12);
+}
+
+.entry-assistant {
+  background: rgba(72, 122, 255, 0.12);
+}
+
+.entry-system {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.approval-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 8, 12, 0.72);
+}
+
+.approval-card {
+  width: min(520px, 100%);
+  padding: 28px;
+}
+
+.approval-card pre {
+  overflow: auto;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #d7f1ff;
+}
+
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.primary-button,
+.secondary-button {
+  padding: 12px 18px;
+  font-weight: 700;
+}
+
+.primary-button {
+  color: #06111a;
+  background: #9cf7d2;
+}
+
+.secondary-button {
+  color: #f2f5f7;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 960px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .talk-button {
+    min-height: 84px;
+  }
+}

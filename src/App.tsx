@@ -1,0 +1,416 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+type SessionState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking' | 'stopped' | 'error';
+
+type TranscriptEntry = {
+  id: string;
+  speaker: 'user' | 'assistant' | 'system';
+  text: string;
+};
+
+type ApprovalRequest = {
+  id: string;
+  toolName: string;
+  reason: string;
+  args: Record<string, unknown>;
+};
+
+type RealtimeEvent =
+  | { type: 'session-status'; status: SessionState; detail?: string }
+  | { type: 'assistant-transcript'; text: string; itemId?: string }
+  | { type: 'user-transcript'; text: string; itemId?: string }
+  | { type: 'assistant-audio'; audioBase64: string }
+  | { type: 'approval-request'; request: ApprovalRequest }
+  | { type: 'tool-result'; name: string; output: string; ok: boolean }
+  | { type: 'error'; message: string };
+
+function App() {
+  const [sessionState, setSessionState] = useState<SessionState>('idle');
+  const [statusDetail, setStatusDetail] = useState('Ready.');
+  const [isActive, setIsActive] = useState(false);
+  const [config, setConfig] = useState({
+    hasApiKey: false,
+    model: 'gpt-realtime',
+    voice: 'alloy',
+  });
+  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  const [entries, setEntries] = useState<TranscriptEntry[]>([
+    {
+      id: 'system-intro',
+      speaker: 'system',
+      text: 'Press Start Conversation once to open the voice session. Press Stop Conversation to end it.',
+    },
+  ]);
+  const recorderRef = useRef<AudioRecorder | null>(null);
+  const playerRef = useRef<PcmAudioPlayer | null>(null);
+
+  useEffect(() => {
+    const detach = window.chetBot.onEvent((event: RealtimeEvent) => {
+      handleRealtimeEvent(event);
+    });
+
+    void window.chetBot.getConfig().then(setConfig);
+    playerRef.current = new PcmAudioPlayer();
+
+    return () => {
+      detach();
+      void recorderRef.current?.stop();
+      playerRef.current?.dispose();
+    };
+  }, []);
+
+  const statusLabel = useMemo(() => {
+    switch (sessionState) {
+      case 'connecting':
+        return 'Connecting';
+      case 'listening':
+        return 'Listening';
+      case 'thinking':
+        return 'Thinking';
+      case 'speaking':
+        return 'Speaking';
+      case 'error':
+        return 'Error';
+      case 'stopped':
+      case 'idle':
+      default:
+        return 'Idle';
+    }
+  }, [sessionState]);
+
+  async function toggleSession() {
+    if (isActive) {
+      await stopConversation();
+      return;
+    }
+
+    const response = await window.chetBot.startSession();
+
+    if (!response.ok) {
+      setSessionState('error');
+      setStatusDetail(response.message ?? 'Unable to start session.');
+      return;
+    }
+
+    try {
+      const recorder = new AudioRecorder((audioBase64) => {
+        window.chetBot.sendAudioChunk(audioBase64);
+      });
+
+      await recorder.start();
+      recorderRef.current = recorder;
+      setIsActive(true);
+      setSessionState('connecting');
+      setStatusDetail('Opening realtime voice session...');
+    } catch (error) {
+      await window.chetBot.stopSession();
+      setSessionState('error');
+      setStatusDetail(
+        error instanceof Error ? error.message : 'Unable to access the microphone.',
+      );
+    }
+  }
+
+  async function stopConversation() {
+    setIsActive(false);
+    setApproval(null);
+    await recorderRef.current?.stop();
+    recorderRef.current = null;
+    playerRef.current?.flush();
+    await window.chetBot.stopSession();
+    setSessionState('stopped');
+    setStatusDetail('Conversation stopped.');
+  }
+
+  function handleRealtimeEvent(event: RealtimeEvent) {
+    switch (event.type) {
+      case 'session-status':
+        setSessionState(event.status);
+        setStatusDetail(event.detail ?? '');
+        return;
+      case 'assistant-transcript':
+        upsertTranscript(event.itemId ?? `assistant-${event.text.length}`, 'assistant', event.text);
+        return;
+      case 'user-transcript':
+        upsertTranscript(event.itemId ?? `user-${event.text.length}`, 'user', event.text);
+        return;
+      case 'assistant-audio':
+        void playerRef.current?.appendBase64(event.audioBase64);
+        return;
+      case 'approval-request':
+        setApproval(event.request);
+        return;
+      case 'tool-result':
+        appendSystemMessage(
+          `${event.ok ? 'Tool completed' : 'Tool failed'}: ${event.name} - ${event.output}`,
+        );
+        return;
+      case 'error':
+        setSessionState('error');
+        setStatusDetail(event.message);
+        appendSystemMessage(`Error: ${event.message}`);
+        return;
+      default:
+        return;
+    }
+  }
+
+  function appendSystemMessage(text: string) {
+    setEntries((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        speaker: 'system',
+        text,
+      },
+    ]);
+  }
+
+  function upsertTranscript(id: string, speaker: TranscriptEntry['speaker'], text: string) {
+    if (!text.trim()) {
+      return;
+    }
+
+    setEntries((current) => {
+      const index = current.findIndex((entry) => entry.id === id);
+
+      if (index === -1) {
+        return [...current, { id, speaker, text }];
+      }
+
+      const next = [...current];
+      next[index] = { ...next[index], text };
+      return next;
+    });
+  }
+
+  function resolveApproval(approved: boolean) {
+    if (!approval) {
+      return;
+    }
+
+    window.chetBot.resolveApproval(approval.id, approved);
+    appendSystemMessage(
+      `${approved ? 'Approved' : 'Denied'} ${approval.toolName}: ${approval.reason}`,
+    );
+    setApproval(null);
+  }
+
+  return (
+    <main className="app-shell">
+      <section className="hero-panel">
+        <p className="eyebrow">Voice Desktop Agent</p>
+        <h1>Chet Bot</h1>
+        <p className="lede">
+          One button. Live voice conversation. Local tool calls only after approval.
+        </p>
+
+        <div className="status-row">
+          <div className={`status-pill status-${sessionState}`}>{statusLabel}</div>
+          <span>{statusDetail}</span>
+        </div>
+
+        <button className={`talk-button ${isActive ? 'active' : ''}`} onClick={toggleSession}>
+          {isActive ? 'Stop Conversation' : 'Start Conversation'}
+        </button>
+
+        <div className="config-grid">
+          <div>
+            <span className="meta-label">Model</span>
+            <strong>{config.model}</strong>
+          </div>
+          <div>
+            <span className="meta-label">Voice</span>
+            <strong>{config.voice}</strong>
+          </div>
+          <div>
+            <span className="meta-label">API Key</span>
+            <strong>{config.hasApiKey ? 'Loaded' : 'Missing'}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="transcript-panel">
+        <div className="panel-header">
+          <h2>Conversation</h2>
+          <p>Live transcript and tool activity</p>
+        </div>
+
+        <div className="transcript-list">
+          {entries.map((entry) => (
+            <article key={entry.id} className={`entry entry-${entry.speaker}`}>
+              <span className="entry-speaker">{entry.speaker}</span>
+              <p>{entry.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {approval ? (
+        <section className="approval-modal">
+          <div className="approval-card">
+            <p className="eyebrow">Approval Required</p>
+            <h2>{approval.toolName}</h2>
+            <p>{approval.reason}</p>
+            <pre>{JSON.stringify(approval.args, null, 2)}</pre>
+            <div className="approval-actions">
+              <button className="secondary-button" onClick={() => resolveApproval(false)}>
+                Deny
+              </button>
+              <button className="primary-button" onClick={() => resolveApproval(true)}>
+                Approve
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+    </main>
+  );
+}
+
+class AudioRecorder {
+  private readonly onChunk: (audioBase64: string) => void;
+  private audioContext: AudioContext | null = null;
+  private mediaStream: MediaStream | null = null;
+  private processor: ScriptProcessorNode | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
+
+  constructor(onChunk: (audioBase64: string) => void) {
+    this.onChunk = onChunk;
+  }
+
+  async start() {
+    this.mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+    });
+
+    this.audioContext = new AudioContext({ sampleRate: 48_000 });
+    this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
+    this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.processor.onaudioprocess = (event) => {
+      const input = event.inputBuffer.getChannelData(0);
+      const downsampled = downsampleBuffer(input, this.audioContext?.sampleRate ?? 48_000, 24_000);
+      const audioBase64 = encodePcm16ToBase64(downsampled);
+      this.onChunk(audioBase64);
+    };
+
+    this.source.connect(this.processor);
+    this.processor.connect(this.audioContext.destination);
+  }
+
+  async stop() {
+    this.processor?.disconnect();
+    this.source?.disconnect();
+    this.mediaStream?.getTracks().forEach((track) => track.stop());
+
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      await this.audioContext.close();
+    }
+
+    this.processor = null;
+    this.source = null;
+    this.mediaStream = null;
+    this.audioContext = null;
+  }
+}
+
+class PcmAudioPlayer {
+  private audioContext = new AudioContext({ sampleRate: 24_000 });
+  private nextStartTime = 0;
+
+  async appendBase64(audioBase64: string) {
+    const pcm16 = decodeBase64ToPcm16(audioBase64);
+    const float32 = new Float32Array(pcm16.length);
+
+    for (let index = 0; index < pcm16.length; index += 1) {
+      float32[index] = pcm16[index] / 0x7fff;
+    }
+
+    const buffer = this.audioContext.createBuffer(1, float32.length, 24_000);
+    buffer.copyToChannel(float32, 0);
+
+    const source = this.audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.audioContext.destination);
+
+    const startAt = Math.max(this.audioContext.currentTime, this.nextStartTime);
+    source.start(startAt);
+    this.nextStartTime = startAt + buffer.duration;
+  }
+
+  flush() {
+    this.nextStartTime = this.audioContext.currentTime;
+  }
+
+  dispose() {
+    void this.audioContext.close();
+  }
+}
+
+function downsampleBuffer(
+  buffer: Float32Array,
+  inputSampleRate: number,
+  outputSampleRate: number,
+) {
+  if (outputSampleRate === inputSampleRate) {
+    return buffer;
+  }
+
+  const sampleRateRatio = inputSampleRate / outputSampleRate;
+  const newLength = Math.round(buffer.length / sampleRateRatio);
+  const result = new Float32Array(newLength);
+  let offsetResult = 0;
+  let offsetBuffer = 0;
+
+  while (offsetResult < result.length) {
+    const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+    let accum = 0;
+    let count = 0;
+
+    for (let index = offsetBuffer; index < nextOffsetBuffer && index < buffer.length; index += 1) {
+      accum += buffer[index];
+      count += 1;
+    }
+
+    result[offsetResult] = count > 0 ? accum / count : 0;
+    offsetResult += 1;
+    offsetBuffer = nextOffsetBuffer;
+  }
+
+  return result;
+}
+
+function encodePcm16ToBase64(float32: Float32Array) {
+  const pcm = new Int16Array(float32.length);
+
+  for (let index = 0; index < float32.length; index += 1) {
+    const sample = Math.max(-1, Math.min(1, float32[index]));
+    pcm[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+  }
+
+  const bytes = new Uint8Array(pcm.buffer);
+  let binary = '';
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return window.btoa(binary);
+}
+
+function decodeBase64ToPcm16(audioBase64: string) {
+  const binary = window.atob(audioBase64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Int16Array(bytes.buffer);
+}
+
+export default App;
