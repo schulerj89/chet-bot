@@ -8,6 +8,7 @@ type DesktopApi = {
   resolveApproval: (approvalId: string, approved: boolean) => void;
   onEvent: (callback: (event: RendererEvent) => void) => () => void;
   getConfig: () => Promise<{ hasApiKey: boolean; model: string; voice: string }>;
+  getImageDataUrl: (filePath: string) => Promise<string>;
 };
 
 const api: DesktopApi = {
@@ -28,6 +29,7 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('session:event', listener);
   },
   getConfig: () => ipcRenderer.invoke('session:config'),
+  getImageDataUrl: (filePath) => ipcRenderer.invoke('asset:image-data-url', filePath),
 };
 
 contextBridge.exposeInMainWorld('chetBot', api);

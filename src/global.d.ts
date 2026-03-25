@@ -23,6 +23,7 @@ type DesktopApi = {
   resolveApproval: (approvalId: string, approved: boolean) => void;
   onEvent: (callback: (event: RealtimeEvent) => void) => () => void;
   getConfig: () => Promise<{ hasApiKey: boolean; model: string; voice: string }>;
+  getImageDataUrl: (filePath: string) => Promise<string>;
 };
 
 declare global {

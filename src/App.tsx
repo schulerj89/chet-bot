@@ -11,6 +11,8 @@ type TranscriptEntry = {
   final: boolean;
   toolName?: string;
   status?: 'pending' | 'success' | 'error' | 'approved' | 'denied';
+  imageSrc?: string;
+  imagePath?: string;
 };
 
 type ApprovalRequest = {
@@ -198,7 +200,7 @@ function App() {
         setApproval(event.request);
         return;
       case 'tool-result':
-        appendToolEntry(
+        void appendToolEntry(
           event.name,
           event.output,
           event.ok ? 'success' : 'error',
@@ -231,12 +233,24 @@ function App() {
     ].sort((left, right) => left.order - right.order));
   }
 
-  function appendToolEntry(
+  async function appendToolEntry(
     toolName: string,
     text: string,
     status: TranscriptEntry['status'],
     id?: string,
   ) {
+    const screenshotPath =
+      toolName === 'take_screenshot' && status === 'success' ? extractScreenshotPath(text) : null;
+    let imageSrc: string | undefined;
+
+    if (screenshotPath && bridge) {
+      try {
+        imageSrc = await bridge.getImageDataUrl(screenshotPath);
+      } catch {
+        imageSrc = undefined;
+      }
+    }
+
     const nextEntry: TranscriptEntry = {
       id: id ?? crypto.randomUUID(),
       order: entryOrderRef.current++,
@@ -246,6 +260,8 @@ function App() {
       final: true,
       toolName,
       status,
+      imageSrc,
+      imagePath: screenshotPath ?? undefined,
     };
 
     setEntries((current) => [...current, nextEntry].sort((left, right) => left.order - right.order));
@@ -289,7 +305,7 @@ function App() {
     }
 
     bridge?.resolveApproval(approval.id, approved);
-    appendToolEntry(
+    void appendToolEntry(
       approval.toolName,
       approval.reason,
       approved ? 'approved' : 'denied',
@@ -378,6 +394,11 @@ function App() {
                 ) : null}
               </div>
               <p>{entry.text}</p>
+              {entry.imageSrc ? (
+                <figure className="entry-image">
+                  <img src={entry.imageSrc} alt={entry.imagePath ?? 'tool preview'} />
+                </figure>
+              ) : null}
               {!entry.final ? <span className="entry-live">live</span> : null}
             </article>
           ))}
@@ -404,6 +425,11 @@ function App() {
       ) : null}
     </main>
   );
+}
+
+function extractScreenshotPath(text: string) {
+  const match = text.match(/Saved screenshot to (.+)$/);
+  return match ? match[1].trim() : null;
 }
 
 class AudioRecorder {

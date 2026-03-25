@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { app, BrowserWindow, ipcMain } from 'electron';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RealtimeSession, type RendererEvent } from './realtime-session.js';
@@ -69,6 +70,29 @@ app.whenReady().then(() => {
       model: config.model,
       voice: config.voice,
     };
+  });
+
+  ipcMain.handle('asset:image-data-url', async (_event, filePath: string) => {
+    const resolvedPath = path.resolve(filePath);
+    const extension = path.extname(resolvedPath).toLowerCase();
+
+    if (!['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'].includes(extension)) {
+      throw new Error('Unsupported image type.');
+    }
+
+    const imageBuffer = await fs.readFile(resolvedPath);
+    const mimeType =
+      extension === '.jpg' || extension === '.jpeg'
+        ? 'image/jpeg'
+        : extension === '.gif'
+          ? 'image/gif'
+          : extension === '.webp'
+            ? 'image/webp'
+            : extension === '.bmp'
+              ? 'image/bmp'
+              : 'image/png';
+
+    return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
   });
 
   ipcMain.handle('session:start', async () => {

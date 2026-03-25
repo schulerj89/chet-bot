@@ -335,6 +335,17 @@ textarea {
   background: rgba(156, 247, 210, 0.1);
 }
 
+.entry-image {
+  margin: 12px 0 0;
+}
+
+.entry-image img {
+  display: block;
+  width: min(100%, 320px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .entry-user {
   background: rgba(15, 199, 176, 0.12);
 }
