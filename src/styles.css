@@ -19,6 +19,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 button,
@@ -35,8 +36,9 @@ textarea {
   display: grid;
   grid-template-columns: minmax(320px, 420px) 1fr;
   gap: 24px;
-  min-height: 100vh;
+  height: 100vh;
   padding: 24px;
+  overflow: hidden;
 }
 
 .hero-panel,
@@ -52,8 +54,10 @@ textarea {
 .hero-panel {
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  padding: 32px;
+  gap: 18px;
+  padding: 24px;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
 }
 
 .eyebrow {
@@ -102,7 +106,7 @@ textarea {
   position: relative;
   display: grid;
   place-items: center;
-  min-height: 180px;
+  min-height: 136px;
   border-radius: 28px;
   background:
     radial-gradient(circle at center, rgba(255, 255, 255, 0.08), transparent 58%),
@@ -128,16 +132,16 @@ textarea {
   position: relative;
   display: grid;
   place-items: center;
-  width: 108px;
-  height: 108px;
+  width: 88px;
+  height: 88px;
   border-radius: 999px;
   background: linear-gradient(135deg, #99f6e4 0%, #60a5fa 100%);
   box-shadow: 0 0 0 18px rgba(98, 180, 255, 0.08);
 }
 
 .voice-orb-core span {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   background: rgba(4, 17, 27, 0.78);
 }
@@ -234,8 +238,8 @@ textarea {
 }
 
 .talk-button {
-  min-height: 112px;
-  padding: 24px 28px;
+  min-height: 84px;
+  padding: 18px 24px;
   font-size: 1.18rem;
   font-weight: 800;
   color: #04111b;
@@ -287,7 +291,9 @@ textarea {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  max-height: calc(100vh - 48px);
   padding: 24px;
+  overflow: hidden;
 }
 
 .panel-header {
@@ -295,10 +301,12 @@ textarea {
 }
 
 .transcript-list {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  overflow: auto;
+  overflow-y: auto;
   padding-right: 6px;
 }
 
@@ -366,6 +374,9 @@ textarea {
 @media (max-width: 960px) {
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
   }
 
   .config-grid {
@@ -373,7 +384,12 @@ textarea {
   }
 
   .talk-button {
-    min-height: 84px;
+    min-height: 72px;
+  }
+
+  .hero-panel,
+  .transcript-panel {
+    max-height: none;
   }
 }
 

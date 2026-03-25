@@ -4,6 +4,7 @@ type SessionState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking
 
 type TranscriptEntry = {
   id: string;
+  order: number;
   speaker: 'user' | 'assistant' | 'system';
   text: string;
 };
@@ -40,12 +41,15 @@ function App() {
   const [entries, setEntries] = useState<TranscriptEntry[]>([
     {
       id: 'system-intro',
+      order: 0,
       speaker: 'system',
       text: 'Press Start Conversation once to open the voice session. Press Stop Conversation to end it.',
     },
   ]);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const playerRef = useRef<PcmAudioPlayer | null>(null);
+  const transcriptListRef = useRef<HTMLDivElement | null>(null);
+  const entryOrderRef = useRef(1);
 
   useEffect(() => {
     if (!bridge) {
@@ -73,6 +77,16 @@ function App() {
       playerRef.current?.dispose();
     };
   }, [bridge]);
+
+  useEffect(() => {
+    const transcriptList = transcriptListRef.current;
+
+    if (!transcriptList) {
+      return;
+    }
+
+    transcriptList.scrollTop = transcriptList.scrollHeight;
+  }, [entries]);
 
   const statusLabel = useMemo(() => {
     switch (sessionState) {
@@ -182,14 +196,17 @@ function App() {
   }
 
   function appendSystemMessage(text: string) {
+    const nextEntry: TranscriptEntry = {
+      id: crypto.randomUUID(),
+      order: entryOrderRef.current++,
+      speaker: 'system',
+      text,
+    };
+
     setEntries((current) => [
       ...current,
-      {
-        id: crypto.randomUUID(),
-        speaker: 'system',
-        text,
-      },
-    ]);
+      nextEntry,
+    ].sort((left, right) => left.order - right.order));
   }
 
   function upsertTranscript(id: string, speaker: TranscriptEntry['speaker'], text: string) {
@@ -201,12 +218,14 @@ function App() {
       const index = current.findIndex((entry) => entry.id === id);
 
       if (index === -1) {
-        return [...current, { id, speaker, text }];
+        return [...current, { id, order: entryOrderRef.current++, speaker, text }].sort(
+          (left, right) => left.order - right.order,
+        );
       }
 
       const next = [...current];
       next[index] = { ...next[index], text };
-      return next;
+      return next.sort((left, right) => left.order - right.order);
     });
   }
 
@@ -285,7 +304,7 @@ function App() {
           <p>Live transcript and tool activity</p>
         </div>
 
-        <div className="transcript-list">
+        <div className="transcript-list" ref={transcriptListRef}>
           {entries.map((entry) => (
             <article key={entry.id} className={`entry entry-${entry.speaker}`}>
               <span className="entry-speaker">{entry.speaker}</span>
