@@ -29,13 +29,20 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 ## Available tools
 
 - `get_time`
+- `take_screenshot`
+- `list_windows`
+- `focus_window`
+- `mouse_click`
+- `type_text`
+- `read_file`
+- `write_file`
 - `open_url`
 - `open_app`
 - `run_powershell`
 
 ## Safety
 
-- Browser launches, app launches, and PowerShell execution require approval.
+- File writes, window focus, typing, mouse clicks, browser launches, app launches, and PowerShell execution require approval.
 - The current implementation is Windows-first and intentionally conservative.
 
 ## Build
