@@ -9,9 +9,10 @@ type ApprovalRequest = {
 
 type RealtimeEvent =
   | { type: 'session-status'; status: SessionState; detail?: string }
-  | { type: 'assistant-transcript'; text: string; itemId?: string }
-  | { type: 'user-transcript'; text: string; itemId?: string }
+  | { type: 'assistant-transcript'; text: string; itemId?: string; final?: boolean }
+  | { type: 'user-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'assistant-audio'; audioBase64: string }
+  | { type: 'assistant-audio-reset'; reason: 'interrupt' | 'stop' }
   | { type: 'approval-request'; request: ApprovalRequest }
   | { type: 'tool-result'; name: string; output: string; ok: boolean }
   | { type: 'error'; message: string };

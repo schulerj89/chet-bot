@@ -6,6 +6,7 @@ export type RendererEvent =
   | { type: 'assistant-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'user-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'assistant-audio'; audioBase64: string }
+  | { type: 'assistant-audio-reset'; reason: 'interrupt' | 'stop' }
   | { type: 'approval-request'; request: ApprovalRequest }
   | { type: 'tool-result'; name: string; output: string; ok: boolean }
   | { type: 'error'; message: string };
@@ -36,6 +37,7 @@ export class RealtimeSession {
   private socket: WebSocket | null = null;
   private connected = false;
   private responseTranscript = '';
+  private activeAssistantItemId: string | undefined;
 
   constructor(config: SessionConfig) {
     this.apiKey = config.apiKey;
@@ -98,6 +100,7 @@ export class RealtimeSession {
   }
 
   disconnect() {
+    this.emitAssistantAudioReset('stop');
     this.socket?.close(1000, 'User stopped conversation');
     this.socket = null;
     this.connected = false;
@@ -122,6 +125,7 @@ export class RealtimeSession {
           'When the user asks for help, take initiative and sound capable.',
           'If the task is simple, answer directly. If the task is bigger, guide the user step by step without overexplaining.',
           'You are allowed to use tools when they help.',
+          'For codebase work in this project, prefer the run_codex tool instead of generic shell commands.',
           'Before using any tool, briefly tell the user what you are about to do in one short conversational line.',
           'Never imply that a machine-affecting action already happened before the tool succeeds.',
           'For actions that change the machine, files, settings, apps, or commands, wait for approval flow and do not pressure the user.',
@@ -151,22 +155,35 @@ export class RealtimeSession {
       case 'session.updated':
         return;
       case 'input_audio_buffer.speech_started':
+        this.finalizeAssistantTranscript();
+        this.emitAssistantAudioReset('interrupt');
         this.onEvent({ type: 'session-status', status: 'listening', detail: 'Listening...' });
         return;
       case 'input_audio_buffer.speech_stopped':
       case 'input_audio_buffer.committed':
         this.onEvent({ type: 'session-status', status: 'thinking', detail: 'Thinking...' });
         return;
-      case 'response.audio.delta': {
+      case 'response.audio.delta':
+      case 'response.output_audio.delta': {
         const audioBase64 = String(event.delta ?? '');
         if (audioBase64) {
+          this.activeAssistantItemId =
+            typeof event.item_id === 'string' ? event.item_id : this.activeAssistantItemId;
           this.onEvent({ type: 'assistant-audio', audioBase64 });
           this.onEvent({ type: 'session-status', status: 'speaking', detail: 'Speaking...' });
         }
         return;
       }
-      case 'response.audio_transcript.delta': {
+      case 'response.audio.done':
+      case 'response.output_audio.done':
+      case 'response.done':
+        this.onEvent({ type: 'session-status', status: 'listening', detail: 'Listening...' });
+        return;
+      case 'response.audio_transcript.delta':
+      case 'response.output_audio_transcript.delta': {
         const delta = String(event.delta ?? '');
+        this.activeAssistantItemId =
+          typeof event.item_id === 'string' ? event.item_id : this.activeAssistantItemId;
         this.responseTranscript += delta;
         this.onEvent({
           type: 'assistant-transcript',
@@ -176,15 +193,17 @@ export class RealtimeSession {
         });
         return;
       }
-      case 'response.audio_transcript.done': {
+      case 'response.audio_transcript.done':
+      case 'response.output_audio_transcript.done': {
         const transcript = String(event.transcript ?? this.responseTranscript);
-        this.responseTranscript = '';
         this.onEvent({
           type: 'assistant-transcript',
           text: transcript,
           itemId: typeof event.item_id === 'string' ? event.item_id : undefined,
           final: true,
         });
+        this.responseTranscript = '';
+        this.activeAssistantItemId = undefined;
         this.onEvent({ type: 'session-status', status: 'listening', detail: 'Listening...' });
         return;
       }
@@ -263,5 +282,24 @@ export class RealtimeSession {
     }
 
     this.socket.send(JSON.stringify(payload));
+  }
+
+  private emitAssistantAudioReset(reason: 'interrupt' | 'stop') {
+    this.onEvent({ type: 'assistant-audio-reset', reason });
+  }
+
+  private finalizeAssistantTranscript() {
+    if (!this.responseTranscript.trim()) {
+      return;
+    }
+
+    this.onEvent({
+      type: 'assistant-transcript',
+      text: this.responseTranscript,
+      itemId: this.activeAssistantItemId,
+      final: true,
+    });
+    this.responseTranscript = '';
+    this.activeAssistantItemId = undefined;
   }
 }

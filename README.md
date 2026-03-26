@@ -39,6 +39,7 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 - `open_url`
 - `open_app`
 - `run_powershell`
+- `run_codex`
 
 ## Safety
 

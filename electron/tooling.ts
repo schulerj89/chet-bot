@@ -206,6 +206,27 @@ export function getToolDefinitions() {
         required: ['command'],
       },
     },
+    {
+      type: 'function',
+      name: 'run_codex',
+      description:
+        'Run the local Codex CLI for codebase analysis or code changes after explicit user approval.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'The instructions to give Codex.',
+          },
+          cwd: {
+            type: 'string',
+            description: 'Optional working directory. Defaults to the current project root.',
+          },
+        },
+        required: ['prompt'],
+      },
+    },
   ];
 }
 
@@ -404,6 +425,35 @@ export async function executeToolCall(
         },
         requestApproval,
       );
+    case 'run_codex':
+      return runApprovalWrappedTool(
+        request.callId,
+        'run_codex',
+        `Run Codex: ${truncateForReason(String(args.prompt ?? ''))}`,
+        args,
+        async () => {
+          const prompt = String(args.prompt ?? '').trim();
+          const cwd = resolveToolWorkingDirectory(String(args.cwd ?? ''));
+
+          if (!prompt) {
+            throw new Error('Missing prompt.');
+          }
+
+          const { stdout, stderr } = await execFileAsync(
+            'codex.cmd',
+            ['exec', '--skip-git-repo-check', '--cd', cwd, prompt],
+            {
+              windowsHide: true,
+              cwd,
+              maxBuffer: 1024 * 1024 * 10,
+            },
+          );
+
+          const combined = [stdout.trim(), stderr.trim()].filter(Boolean).join('\n');
+          return combined || 'Codex completed with no output.';
+        },
+        requestApproval,
+      );
     default:
       return {
         ok: false,
@@ -460,6 +510,16 @@ function resolveUserPath(inputPath: string) {
 
   if (!trimmed) {
     return '';
+  }
+
+  return path.isAbsolute(trimmed) ? trimmed : path.resolve(trimmed);
+}
+
+function resolveToolWorkingDirectory(inputPath: string) {
+  const trimmed = inputPath.trim();
+
+  if (!trimmed) {
+    return process.cwd();
   }
 
   return path.isAbsolute(trimmed) ? trimmed : path.resolve(trimmed);

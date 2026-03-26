@@ -27,6 +27,7 @@ type RealtimeEvent =
   | { type: 'assistant-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'user-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'assistant-audio'; audioBase64: string }
+  | { type: 'assistant-audio-reset'; reason: 'interrupt' | 'stop' }
   | { type: 'approval-request'; request: ApprovalRequest }
   | { type: 'tool-result'; name: string; output: string; ok: boolean }
   | { type: 'error'; message: string };
@@ -189,6 +190,9 @@ function App() {
         return;
       case 'assistant-audio':
         void playerRef.current?.appendBase64(event.audioBase64);
+        return;
+      case 'assistant-audio-reset':
+        playerRef.current?.flush();
         return;
       case 'approval-request':
         appendToolEntry(
@@ -495,8 +499,11 @@ function getAudioLevel(buffer: Float32Array) {
 class PcmAudioPlayer {
   private audioContext = new AudioContext({ sampleRate: 24_000 });
   private nextStartTime = 0;
+  private generation = 0;
+  private activeSources = new Set<AudioBufferSourceNode>();
 
   async appendBase64(audioBase64: string) {
+    const generation = this.generation;
     const pcm16 = decodeBase64ToPcm16(audioBase64);
     const float32 = new Float32Array(pcm16.length);
 
@@ -510,17 +517,39 @@ class PcmAudioPlayer {
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(this.audioContext.destination);
+    this.activeSources.add(source);
+    source.onended = () => {
+      this.activeSources.delete(source);
+      source.disconnect();
+    };
 
     const startAt = Math.max(this.audioContext.currentTime, this.nextStartTime);
+    if (generation !== this.generation) {
+      this.activeSources.delete(source);
+      source.disconnect();
+      return;
+    }
+
     source.start(startAt);
     this.nextStartTime = startAt + buffer.duration;
   }
 
   flush() {
+    this.generation += 1;
+    for (const source of this.activeSources) {
+      try {
+        source.stop();
+      } catch {
+        // Source may already be finished; stopping the rest is what matters.
+      }
+      source.disconnect();
+    }
+    this.activeSources.clear();
     this.nextStartTime = this.audioContext.currentTime;
   }
 
   dispose() {
+    this.flush();
     void this.audioContext.close();
   }
 }
