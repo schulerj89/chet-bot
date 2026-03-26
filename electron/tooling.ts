@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { executeChromeToolCall, getChromeToolDefinitions, isChromeToolName } from './chrome-tools.js';
+import { getThinkingToolDefinition, runThinkingModel } from './thinking-model.js';
 import type { ApprovalRequest, ToolCallRequest, ToolDefinition, ToolExecutionResult } from './tool-types.js';
 
 const execFileAsync = promisify(execFile);
@@ -12,6 +13,7 @@ const SCREENSHOT_DIR = path.join(os.tmpdir(), 'chet-bot');
 export type { ApprovalRequest, ToolCallRequest, ToolDefinition, ToolExecutionResult } from './tool-types.js';
 
 export function getToolDefinitions(): ToolDefinition[] {
+  const thinkingModel = process.env.OPENAI_THINKING_MODEL?.trim() || 'gpt-5.2';
   return [
     {
       type: 'function',
@@ -165,6 +167,7 @@ export function getToolDefinitions(): ToolDefinition[] {
         required: ['prompt'],
       },
     },
+    getThinkingToolDefinition(thinkingModel),
     ...getChromeToolDefinitions(),
   ];
 }
@@ -390,6 +393,20 @@ export async function executeToolCall(
         },
         requestApproval,
       );
+    case 'deep_think':
+      return runTool(async () => {
+        const prompt = String(args.prompt ?? '').trim();
+        if (!prompt) {
+          throw new Error('Missing prompt.');
+        }
+
+        const result = await runThinkingModel(prompt, {
+          apiKey: process.env.OPENAI_API_KEY ?? '',
+          model: process.env.OPENAI_THINKING_MODEL?.trim() || 'gpt-5.2',
+          useWebSearch: /^(1|true|yes)$/i.test(process.env.OPENAI_THINKING_USE_WEB_SEARCH ?? ''),
+        });
+        return result.output;
+      });
     default:
       return { ok: false, output: `Unsupported tool: ${request.name}` };
   }

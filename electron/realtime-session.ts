@@ -24,6 +24,7 @@ type SessionConfig = {
   apiKey: string;
   model: string;
   voice: string;
+  thinkingModel: string;
   onEvent: (event: RendererEvent) => void;
   requestApproval: (request: ApprovalRequest) => Promise<boolean>;
 };
@@ -32,6 +33,7 @@ export class RealtimeSession {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly voice: string;
+  private readonly thinkingModel: string;
   private readonly onEvent: (event: RendererEvent) => void;
   private readonly requestApproval: (request: ApprovalRequest) => Promise<boolean>;
   private socket: WebSocket | null = null;
@@ -43,6 +45,7 @@ export class RealtimeSession {
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.voice = config.voice;
+    this.thinkingModel = config.thinkingModel;
     this.onEvent = config.onEvent;
     this.requestApproval = config.requestApproval;
   }
@@ -125,8 +128,10 @@ export class RealtimeSession {
           'When the user asks for help, take initiative and sound capable.',
           'If the task is simple, answer directly. If the task is bigger, guide the user step by step without overexplaining.',
           'You are allowed to use tools when they help.',
+          `For deeper reasoning, difficult recommendations, current-info research, or multi-step planning, use the deep_think tool backed by ${this.thinkingModel}.`,
           'For codebase work in this project, prefer the run_codex tool instead of generic shell commands.',
           'For browser work in Google Chrome, prefer the Chrome DevTools tools over mouse clicks whenever possible.',
+          'Before using deep_think, tell the user briefly that you need a second to think.',
           'Before using any tool, briefly tell the user what you are about to do in one short conversational line.',
           'Never imply that a machine-affecting action already happened before the tool succeeds.',
           'For actions that change the machine, files, settings, apps, or commands, wait for approval flow and do not pressure the user.',
@@ -246,6 +251,14 @@ export class RealtimeSession {
     const callId = String(event.call_id ?? '');
     const name = String(event.name ?? '');
     const argumentsJson = String(event.arguments ?? '{}');
+
+    if (name === 'deep_think') {
+      this.onEvent({
+        type: 'session-status',
+        status: 'thinking',
+        detail: `Thinking deeply with ${this.thinkingModel}...`,
+      });
+    }
 
     const result = await executeToolCall(
       {

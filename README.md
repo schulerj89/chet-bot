@@ -23,8 +23,9 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 
 1. Copy `.env.example` to `.env`.
 2. Set `OPENAI_API_KEY`.
-3. Run `npm install`.
-4. Run `npm run dev`.
+3. Optionally set `OPENAI_THINKING_MODEL` for deeper reasoning and `OPENAI_THINKING_USE_WEB_SEARCH=true` for current-info tasks.
+4. Run `npm install`.
+5. Run `npm run dev`.
 
 ## Available tools
 
@@ -40,6 +41,7 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 - `open_app`
 - `run_powershell`
 - `run_codex`
+- `deep_think`
 - `launch_chrome_debug`
 - `chrome_new_tab`
 - `chrome_close_tab`

@@ -50,6 +50,8 @@ function getEnvConfig() {
     apiKey: process.env.OPENAI_API_KEY ?? '',
     model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime',
     voice: process.env.OPENAI_REALTIME_VOICE ?? 'alloy',
+    thinkingModel: process.env.OPENAI_THINKING_MODEL ?? 'gpt-5.2',
+    thinkingWebSearch: /^(1|true|yes)$/i.test(process.env.OPENAI_THINKING_USE_WEB_SEARCH ?? ''),
   };
 }
 
@@ -69,6 +71,8 @@ app.whenReady().then(() => {
       hasApiKey: Boolean(config.apiKey),
       model: config.model,
       voice: config.voice,
+      thinkingModel: config.thinkingModel,
+      thinkingWebSearch: config.thinkingWebSearch,
     };
   });
 
@@ -110,6 +114,7 @@ app.whenReady().then(() => {
       apiKey: config.apiKey,
       model: config.model,
       voice: config.voice,
+      thinkingModel: config.thinkingModel,
       onEvent: sendRendererEvent,
       requestApproval,
     });

@@ -23,7 +23,13 @@ type DesktopApi = {
   sendAudioChunk: (audioBase64: string) => void;
   resolveApproval: (approvalId: string, approved: boolean) => void;
   onEvent: (callback: (event: RealtimeEvent) => void) => () => void;
-  getConfig: () => Promise<{ hasApiKey: boolean; model: string; voice: string }>;
+  getConfig: () => Promise<{
+    hasApiKey: boolean;
+    model: string;
+    voice: string;
+    thinkingModel: string;
+    thinkingWebSearch: boolean;
+  }>;
   getImageDataUrl: (filePath: string) => Promise<string>;
 };
 

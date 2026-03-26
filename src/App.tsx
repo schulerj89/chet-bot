@@ -42,6 +42,8 @@ function App() {
     hasApiKey: false,
     model: 'gpt-realtime',
     voice: 'alloy',
+    thinkingModel: 'gpt-5.2',
+    thinkingWebSearch: false,
   });
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -370,8 +372,16 @@ function App() {
             <strong>{config.voice}</strong>
           </div>
           <div>
+            <span className="meta-label">Thinking</span>
+            <strong>{config.thinkingModel}</strong>
+          </div>
+          <div>
             <span className="meta-label">API Key</span>
             <strong>{config.hasApiKey ? 'Loaded' : 'Missing'}</strong>
+          </div>
+          <div>
+            <span className="meta-label">Web Search</span>
+            <strong>{config.thinkingWebSearch ? 'Enabled' : 'Off'}</strong>
           </div>
         </div>
       </section>
