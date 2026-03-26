@@ -440,8 +440,8 @@ export async function executeToolCall(
           }
 
           const { stdout, stderr } = await execFileAsync(
-            'codex.cmd',
-            ['exec', '--skip-git-repo-check', '--cd', cwd, prompt],
+            'cmd.exe',
+            ['/d', '/s', '/c', 'codex.cmd', 'exec', '--skip-git-repo-check', '--cd', cwd, prompt],
             {
               windowsHide: true,
               cwd,

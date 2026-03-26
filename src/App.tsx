@@ -127,6 +127,9 @@ function App() {
       return;
     }
 
+    setSessionState('connecting');
+    setStatusDetail('Opening realtime voice session...');
+
     const response = await bridge.startSession();
 
     if (!response.ok) {
@@ -144,8 +147,6 @@ function App() {
       await recorder.start();
       recorderRef.current = recorder;
       setIsActive(true);
-      setSessionState('connecting');
-      setStatusDetail('Opening realtime voice session...');
     } catch (error) {
       await bridge.stopSession();
       setSessionState('error');
