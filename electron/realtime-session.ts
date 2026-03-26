@@ -68,6 +68,22 @@ export class RealtimeSession {
       initialTask: config.initialTask ?? null,
       onUpdate: (task) => {
         this.onEvent({ type: 'task-update', task });
+        if (task?.status === 'running') {
+          this.onEvent({
+            type: 'session-status',
+            status: 'thinking',
+            detail: task.lastUpdate,
+          });
+          return;
+        }
+
+        if (task?.status === 'waiting_approval') {
+          this.onEvent({
+            type: 'session-status',
+            status: 'thinking',
+            detail: 'Waiting for approval...',
+          });
+        }
       },
       executeTool: async (name, args) =>
         executeToolCall(

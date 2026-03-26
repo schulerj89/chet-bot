@@ -504,7 +504,10 @@ export async function executeChromeToolCall(
 
         while (Date.now() - startedAt < timeoutMs) {
           const response = await sendChromeCommand(target, 'Runtime.evaluate', {
-            expression: `Boolean(document.querySelector(${JSON.stringify(selector)}))`,
+            expression: `(() => {
+              ${buildChromeDomHelpers()}
+              return Boolean(deepQuerySelector(${JSON.stringify(selector)}));
+            })()`,
             returnByValue: true,
           });
 
@@ -768,7 +771,8 @@ async function findChromeExecutable() {
 
 function buildChromeClickExpression(selector: string) {
   return `(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
+    ${buildChromeDomHelpers()}
+    const element = deepQuerySelector(${JSON.stringify(selector)});
     if (!element) {
       throw new Error('No element matched selector: ${selector.replace(/'/g, "\\'")}');
     }
@@ -783,7 +787,8 @@ function buildChromeClickExpression(selector: string) {
 
 function buildChromeTypeExpression(selector: string, text: string, submit: boolean) {
   return `(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
+    ${buildChromeDomHelpers()}
+    const element = deepQuerySelector(${JSON.stringify(selector)});
     if (!element) {
       throw new Error('No element matched selector: ${selector.replace(/'/g, "\\'")}');
     }
@@ -811,6 +816,7 @@ function buildChromeTypeExpression(selector: string, text: string, submit: boole
 
 function buildChromeInspectElementsExpression(limit: number) {
   return `(() => {
+    ${buildChromeDomHelpers()}
     const selectors = [
       'input',
       'textarea',
@@ -823,7 +829,7 @@ function buildChromeInspectElementsExpression(limit: number) {
       '[tabindex]'
     ];
 
-    const candidates = Array.from(document.querySelectorAll(selectors.join(',')));
+    const candidates = deepQuerySelectorAll(selectors.join(','));
     const isVisible = (element) => {
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
@@ -879,6 +885,7 @@ function buildChromeInspectElementsExpression(limit: number) {
           placeholder: element.getAttribute('placeholder') || '',
           href: element.getAttribute('href') || '',
           selector: buildSelector(element),
+          inShadowRoot: Boolean(element.getRootNode && element.getRootNode() instanceof ShadowRoot),
           rect: {
             x: Math.round(rect.x),
             y: Math.round(rect.y),
@@ -888,4 +895,60 @@ function buildChromeInspectElementsExpression(limit: number) {
         };
       });
   })()`;
+}
+
+function buildChromeDomHelpers() {
+  return `
+    const getSearchRoots = () => {
+      const roots = [document];
+      const queue = [document.documentElement].filter(Boolean);
+      const seen = new Set();
+
+      while (queue.length > 0) {
+        const node = queue.shift();
+        if (!node || seen.has(node)) {
+          continue;
+        }
+        seen.add(node);
+
+        if (node.shadowRoot) {
+          roots.push(node.shadowRoot);
+          queue.push(node.shadowRoot);
+        }
+
+        if (node.children) {
+          queue.push(...Array.from(node.children));
+        }
+      }
+
+      return roots;
+    };
+
+    const deepQuerySelector = (selector) => {
+      for (const root of getSearchRoots()) {
+        const match = root.querySelector(selector);
+        if (match) {
+          return match;
+        }
+      }
+      return null;
+    };
+
+    const deepQuerySelectorAll = (selector) => {
+      const results = [];
+      const seen = new Set();
+
+      for (const root of getSearchRoots()) {
+        for (const element of Array.from(root.querySelectorAll(selector))) {
+          if (seen.has(element)) {
+            continue;
+          }
+          seen.add(element);
+          results.push(element);
+        }
+      }
+
+      return results;
+    };
+  `;
 }

@@ -36,7 +36,7 @@ type PlannerDecision = {
   stepTitle?: string;
   messageForUser?: string;
   toolName?: string;
-  toolArgs?: Record<string, unknown>;
+  toolArgsJson?: string;
   finalAnswer?: string;
 };
 
@@ -57,9 +57,8 @@ const PLANNER_RESPONSE_SCHEMA = {
     toolName: {
       type: 'string',
     },
-    toolArgs: {
-      type: 'object',
-      additionalProperties: true,
+    toolArgsJson: {
+      type: 'string',
     },
     finalAnswer: {
       type: 'string',
@@ -246,10 +245,7 @@ export class TaskRunner {
         }
 
         const toolName = String(decision.toolName ?? '').trim();
-        const toolArgs =
-          typeof decision.toolArgs === 'object' && decision.toolArgs !== null
-            ? decision.toolArgs
-            : {};
+        const toolArgs = parseToolArgsJson(decision.toolArgsJson);
 
         if (!toolName) {
           this.activeTask = {
@@ -370,13 +366,14 @@ async function planNextStep(input: {
     '  "stepTitle": "short title",',
     '  "messageForUser": "short progress update",',
     '  "toolName": "tool to call when continuing",',
-    '  "toolArgs": { "key": "value" },',
+    '  "toolArgsJson": "{\\"key\\":\\"value\\"}",',
     '  "finalAnswer": "final answer when done"',
     '}',
     'Rules:',
     '- Use status="done" only when the task is complete.',
     '- Use status="blocked" when you cannot proceed safely or lack required information.',
     '- Use status="continue" with exactly one toolName when another action is needed.',
+    '- When status="continue", encode tool arguments as a valid JSON object string in toolArgsJson.',
     '- Prefer the Chrome tools for browser work.',
     '- Prefer concise user-facing updates.',
   ].join('\n');
@@ -469,6 +466,19 @@ function parsePlannerDecision(rawText: string): PlannerDecision | null {
   }
 
   return null;
+}
+
+function parseToolArgsJson(rawValue: string | undefined): Record<string, unknown> {
+  if (!rawValue?.trim()) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    return typeof parsed === 'object' && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 function extractJsonObject(text: string) {
