@@ -27,6 +27,7 @@ const CHROME_TOOL_NAMES = new Set([
   'chrome_close_tab',
   'chrome_list_tabs',
   'chrome_get_page',
+  'chrome_get_dom',
   'chrome_inspect_elements',
   'chrome_navigate',
   'chrome_click',
@@ -105,6 +106,38 @@ export function getChromeToolDefinitions(): ToolDefinition[] {
           titleContains: { type: 'string', description: 'Case-insensitive title match used to pick a tab.' },
           urlContains: { type: 'string', description: 'Case-insensitive URL match used to pick a tab.' },
           port: { type: 'number', description: 'Optional remote debugging port. Defaults to 9222.' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'chrome_get_dom',
+      description:
+        'Inspect arbitrary DOM nodes in a Chrome tab, including open shadow-root content, and return a compact structural snapshot.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          selector: {
+            type: 'string',
+            description: 'Optional CSS selector to inspect. Defaults to body or app root when omitted.',
+          },
+          targetId: { type: 'string', description: 'Exact Chrome target id from chrome_list_tabs.' },
+          titleContains: { type: 'string', description: 'Case-insensitive title match used to pick a tab.' },
+          urlContains: { type: 'string', description: 'Case-insensitive URL match used to pick a tab.' },
+          port: { type: 'number', description: 'Optional remote debugging port. Defaults to 9222.' },
+          maxDepth: {
+            type: 'number',
+            description: 'Maximum child depth to include. Defaults to 3.',
+          },
+          maxChildren: {
+            type: 'number',
+            description: 'Maximum children per node to include. Defaults to 12.',
+          },
+          includeText: {
+            type: 'boolean',
+            description: 'Whether to include compact text snippets for nodes. Defaults to true.',
+          },
         },
       },
     },
@@ -345,6 +378,27 @@ export async function executeChromeToolCall(
 
         return JSON.stringify(page, null, 2);
       });
+    case 'chrome_get_dom':
+      return runTool(async () => {
+        const selector = String(args.selector ?? '').trim();
+        const maxDepth = resolveDomDepth(args.maxDepth);
+        const maxChildren = resolveDomChildren(args.maxChildren);
+        const includeText = args.includeText !== false;
+        const dom = await withChromePage(args, async (target) => {
+          const result = await sendChromeCommand(target, 'Runtime.evaluate', {
+            expression: buildChromeGetDomExpression({
+              selector,
+              maxDepth,
+              maxChildren,
+              includeText,
+            }),
+            returnByValue: true,
+          });
+          return result.result?.value;
+        });
+
+        return JSON.stringify(dom, null, 2);
+      });
     case 'chrome_inspect_elements':
       return runTool(async () => {
         const limit = resolveInspectLimit(args.limit);
@@ -576,6 +630,24 @@ function resolveInspectLimit(value: unknown) {
   }
 
   return Math.max(1, Math.min(limit, 100));
+}
+
+function resolveDomDepth(value: unknown) {
+  const depth = coerceInteger(value);
+  if (depth === null) {
+    return 3;
+  }
+
+  return Math.max(0, Math.min(depth, 8));
+}
+
+function resolveDomChildren(value: unknown) {
+  const count = coerceInteger(value);
+  if (count === null) {
+    return 12;
+  }
+
+  return Math.max(1, Math.min(count, 40));
 }
 
 function coerceInteger(value: unknown) {
@@ -894,6 +966,91 @@ function buildChromeInspectElementsExpression(limit: number) {
           }
         };
       });
+  })()`;
+}
+
+function buildChromeGetDomExpression(input: {
+  selector: string;
+  maxDepth: number;
+  maxChildren: number;
+  includeText: boolean;
+}) {
+  return `(() => {
+    ${buildChromeDomHelpers()}
+    const selector = ${JSON.stringify(input.selector)};
+    const maxDepth = ${input.maxDepth};
+    const maxChildren = ${input.maxChildren};
+    const includeText = ${input.includeText ? 'true' : 'false'};
+
+    const root =
+      (selector ? deepQuerySelector(selector) : null) ||
+      document.querySelector('#app') ||
+      document.body ||
+      document.documentElement;
+
+    if (!root) {
+      throw new Error('No DOM root found for inspection.');
+    }
+
+    const summarizeAttributes = (element) => {
+      const attrs = {};
+      for (const attr of Array.from(element.attributes || []).slice(0, 12)) {
+        attrs[attr.name] = attr.value;
+      }
+      return attrs;
+    };
+
+    const getNodeText = (element) => {
+      if (!includeText) {
+        return '';
+      }
+      return (element.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200);
+    };
+
+    const visit = (node, depth) => {
+      const rect = typeof node.getBoundingClientRect === 'function' ? node.getBoundingClientRect() : null;
+      const shadowRoot = node.shadowRoot || null;
+      const lightChildren = Array.from(node.children || []);
+      const shadowChildren = shadowRoot ? Array.from(shadowRoot.children || []) : [];
+      const combinedChildren = [...lightChildren, ...shadowChildren];
+
+      const summary = {
+        tag: node.tagName ? node.tagName.toLowerCase() : '#unknown',
+        id: node.id || '',
+        classes: Array.from(node.classList || []).slice(0, 8),
+        attributes: summarizeAttributes(node),
+        text: getNodeText(node),
+        childCount: combinedChildren.length,
+        lightChildCount: lightChildren.length,
+        shadowChildCount: shadowChildren.length,
+        hasShadowRoot: Boolean(shadowRoot),
+        inShadowRoot: Boolean(node.getRootNode && node.getRootNode() instanceof ShadowRoot),
+        rect: rect
+          ? {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            }
+          : null,
+        children: [],
+      };
+
+      if (depth >= maxDepth) {
+        return summary;
+      }
+
+      summary.children = combinedChildren.slice(0, maxChildren).map((child) => visit(child, depth + 1));
+      return summary;
+    };
+
+    return {
+      selector: selector || null,
+      matchedTag: root.tagName ? root.tagName.toLowerCase() : '#unknown',
+      matchedId: root.id || '',
+      hasShadowRoot: Boolean(root.shadowRoot),
+      snapshot: visit(root, 0),
+    };
   })()`;
 }
 

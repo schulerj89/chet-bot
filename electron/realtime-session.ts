@@ -207,6 +207,7 @@ export class RealtimeSession {
           'Use run_task when the job likely needs more than one tool call, comparisons, retries, or ongoing progress tracking.',
           'For codebase work in this project, prefer the run_codex tool instead of generic shell commands.',
           'For browser work in Google Chrome, prefer the Chrome DevTools tools over mouse clicks whenever possible.',
+          'When you need to inspect arbitrary page structure, framework containers, or web-component/shadow-root DOM, use chrome_get_dom before falling back to chrome_eval.',
           'Before using deep_think or run_task, tell the user briefly that you need a second to think.',
           'Before using any tool, briefly tell the user what you are about to do in one short conversational line.',
           'Never imply that a machine-affecting action already happened before the tool succeeds.',

@@ -51,6 +51,7 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 - `chrome_close_tab`
 - `chrome_list_tabs`
 - `chrome_get_page`
+- `chrome_get_dom`
 - `chrome_inspect_elements`
 - `chrome_navigate`
 - `chrome_click`
@@ -58,6 +59,8 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 - `chrome_eval`
 - `chrome_screenshot`
 - `chrome_wait_for_selector`
+
+Use `chrome_get_dom` for framework-heavy pages, arbitrary container inspection, and open shadow-root content. Use `chrome_inspect_elements` when you specifically want likely clickable or typable elements.
 
 ## Safety
 
