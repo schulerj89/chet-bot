@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -256,23 +256,26 @@ export async function executeChromeToolCall(
         args,
         async () => {
           const port = resolveChromeDebugPort(args.port);
-          const url = String(args.url ?? '').trim();
+          const rawUrl = String(args.url ?? '').trim();
+          const url = rawUrl ? normalizeChromeUrl(rawUrl) : '';
           const chromePath = await findChromeExecutable();
 
           await fs.mkdir(CHROME_DEBUG_PROFILE_DIR, { recursive: true });
-          await execFileAsync('powershell.exe', [
-            '-NoProfile',
-            '-Command',
-            'Start-Process',
-            '-FilePath',
+          const chromeProcess = spawn(
             chromePath,
-            '-ArgumentList',
             [
               `--remote-debugging-port=${port}`,
-              `--user-data-dir=${quoteArgument(CHROME_DEBUG_PROFILE_DIR)}`,
-              ...(url ? [quoteArgument(url)] : []),
-            ].join(' '),
-          ]);
+              `--user-data-dir=${CHROME_DEBUG_PROFILE_DIR}`,
+              ...(url ? [url] : []),
+            ],
+            {
+              detached: true,
+              stdio: 'ignore',
+              windowsHide: true,
+            },
+          );
+
+          chromeProcess.unref();
 
           return `Chrome launched with remote debugging on port ${port}.`;
         },
@@ -761,10 +764,6 @@ async function findChromeExecutable() {
   }
 
   throw new Error('Google Chrome executable not found.');
-}
-
-function quoteArgument(value: string) {
-  return `"${value.replace(/"/g, '\\"')}"`;
 }
 
 function buildChromeClickExpression(selector: string) {
