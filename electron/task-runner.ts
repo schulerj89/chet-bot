@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { extractResponseText } from './openai-response.js';
 import type { ToolDefinition, ToolExecutionResult } from './tool-types.js';
 
 export type TaskStatus =
@@ -38,6 +39,34 @@ type PlannerDecision = {
   toolArgs?: Record<string, unknown>;
   finalAnswer?: string;
 };
+
+const PLANNER_RESPONSE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['continue', 'done', 'blocked'],
+    },
+    stepTitle: {
+      type: 'string',
+    },
+    messageForUser: {
+      type: 'string',
+    },
+    toolName: {
+      type: 'string',
+    },
+    toolArgs: {
+      type: 'object',
+      additionalProperties: true,
+    },
+    finalAnswer: {
+      type: 'string',
+    },
+  },
+  required: ['status'],
+} as const;
 
 type TaskRunnerConfig = {
   apiKey: string;
@@ -172,117 +201,138 @@ export class TaskRunner {
       throw new Error('No active task.');
     }
 
-    while (this.activeTask.currentStep < this.activeTask.maxSteps) {
-      if (this.cancelled) {
-        throw new Error('Task cancelled.');
-      }
+    try {
+      while (this.activeTask.currentStep < this.activeTask.maxSteps) {
+        if (this.cancelled) {
+          throw new Error('Task cancelled.');
+        }
 
-      if (this.paused) {
-        return 'Task paused.';
-      }
+        if (this.paused) {
+          return 'Task paused.';
+        }
 
-      const nextStepNumber: number = this.activeTask.currentStep + 1;
-      const decision = await planNextStep({
-        apiKey: this.config.apiKey,
-        model: this.config.plannerModel,
-        useWebSearch: this.config.useWebSearch,
-        goal: this.activeTask.goal,
-        currentStep: nextStepNumber,
-        maxSteps: this.activeTask.maxSteps,
-        history: this.activeTask.history,
-        toolDefinitions: this.config.toolDefinitions,
-      });
+        const nextStepNumber: number = this.activeTask.currentStep + 1;
+        const decision = await planNextStep({
+          apiKey: this.config.apiKey,
+          model: this.config.plannerModel,
+          useWebSearch: this.config.useWebSearch,
+          goal: this.activeTask.goal,
+          currentStep: nextStepNumber,
+          maxSteps: this.activeTask.maxSteps,
+          history: this.activeTask.history,
+          toolDefinitions: this.config.toolDefinitions,
+        });
 
-      if (decision.status === 'done') {
-        const finalAnswer = String(decision.finalAnswer ?? '').trim() || 'Task completed.';
+        if (decision.status === 'done') {
+          const finalAnswer = String(decision.finalAnswer ?? '').trim() || 'Task completed.';
+          this.activeTask = {
+            ...this.activeTask,
+            status: 'completed',
+            finalAnswer,
+            lastUpdate: decision.messageForUser?.trim() || 'Task completed.',
+          };
+          this.config.onUpdate(this.activeTask);
+          return finalAnswer;
+        }
+
+        if (decision.status === 'blocked') {
+          this.activeTask = {
+            ...this.activeTask,
+            status: 'paused',
+            lastUpdate: decision.messageForUser?.trim() || 'Task is blocked and needs guidance.',
+          };
+          this.config.onUpdate(this.activeTask);
+          return this.activeTask.lastUpdate;
+        }
+
+        const toolName = String(decision.toolName ?? '').trim();
+        const toolArgs =
+          typeof decision.toolArgs === 'object' && decision.toolArgs !== null
+            ? decision.toolArgs
+            : {};
+
+        if (!toolName) {
+          this.activeTask = {
+            ...this.activeTask,
+            status: 'failed',
+            lastUpdate: 'Planner did not provide a valid next tool.',
+          };
+          this.config.onUpdate(this.activeTask);
+          throw new Error(this.activeTask.lastUpdate);
+        }
+
+        if (['run_task', 'resume_task', 'deep_think'].includes(toolName)) {
+          this.activeTask = {
+            ...this.activeTask,
+            status: 'failed',
+            lastUpdate: `Planner selected an invalid tool for task execution: ${toolName}.`,
+          };
+          this.config.onUpdate(this.activeTask);
+          throw new Error(this.activeTask.lastUpdate);
+        }
+
+        const step: TaskStep = {
+          index: nextStepNumber,
+          title: decision.stepTitle?.trim() || `Step ${nextStepNumber}`,
+          status: 'running',
+          message: decision.messageForUser?.trim() || `Running ${toolName}...`,
+          toolName,
+        };
+
         this.activeTask = {
           ...this.activeTask,
-          status: 'completed',
-          finalAnswer,
-          lastUpdate: decision.messageForUser?.trim() || 'Task completed.',
+          currentStep: nextStepNumber,
+          lastUpdate: step.message,
+          history: [...this.activeTask.history, step],
         };
         this.config.onUpdate(this.activeTask);
-        return finalAnswer;
-      }
 
-      if (decision.status === 'blocked') {
+        const result = await this.config.executeTool(toolName, toolArgs);
+        const history: TaskStep[] = [...this.activeTask.history];
+        history[history.length - 1] = {
+          ...history[history.length - 1],
+          status: result.ok ? 'completed' : 'failed',
+          message: truncateText(result.output, 280),
+        };
+
         this.activeTask = {
           ...this.activeTask,
-          status: 'paused',
-          lastUpdate: decision.messageForUser?.trim() || 'Task is blocked and needs guidance.',
+          history,
+          lastUpdate: history[history.length - 1].message,
+          status: result.ok ? 'running' : 'paused',
         };
         this.config.onUpdate(this.activeTask);
-        return this.activeTask.lastUpdate;
+
+        if (!result.ok) {
+          return this.activeTask.lastUpdate;
+        }
       }
-
-      const toolName = String(decision.toolName ?? '').trim();
-      const toolArgs =
-        typeof decision.toolArgs === 'object' && decision.toolArgs !== null ? decision.toolArgs : {};
-
-      if (!toolName) {
-        this.activeTask = {
-          ...this.activeTask,
-          status: 'failed',
-          lastUpdate: 'Planner did not provide a valid next tool.',
-        };
-        this.config.onUpdate(this.activeTask);
-        throw new Error(this.activeTask.lastUpdate);
-      }
-
-      if (['run_task', 'resume_task', 'deep_think'].includes(toolName)) {
-        this.activeTask = {
-          ...this.activeTask,
-          status: 'failed',
-          lastUpdate: `Planner selected an invalid tool for task execution: ${toolName}.`,
-        };
-        this.config.onUpdate(this.activeTask);
-        throw new Error(this.activeTask.lastUpdate);
-      }
-
-      const step: TaskStep = {
-        index: nextStepNumber,
-        title: decision.stepTitle?.trim() || `Step ${nextStepNumber}`,
-        status: 'running',
-        message: decision.messageForUser?.trim() || `Running ${toolName}...`,
-        toolName,
-      };
 
       this.activeTask = {
         ...this.activeTask,
-        currentStep: nextStepNumber,
-        lastUpdate: step.message,
-        history: [...this.activeTask.history, step],
+        status: 'paused',
+        lastUpdate: `Reached the max step limit of ${this.activeTask.maxSteps}. Resume to continue.`,
       };
       this.config.onUpdate(this.activeTask);
+      return this.activeTask.lastUpdate;
+    } catch (error) {
+      if (!this.activeTask || this.cancelled || this.paused || this.activeTask.status === 'cancelled') {
+        throw error;
+      }
 
-      const result = await this.config.executeTool(toolName, toolArgs);
-      const history: TaskStep[] = [...this.activeTask.history];
-      history[history.length - 1] = {
-        ...history[history.length - 1],
-        status: result.ok ? 'completed' : 'failed',
-        message: truncateText(result.output, 280),
-      };
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : 'Task planner failed unexpectedly.';
 
       this.activeTask = {
         ...this.activeTask,
-        history,
-        lastUpdate: history[history.length - 1].message,
-        status: result.ok ? 'running' : 'paused',
+        status: 'failed',
+        lastUpdate: truncateText(message, 280),
       };
       this.config.onUpdate(this.activeTask);
-
-      if (!result.ok) {
-        return this.activeTask.lastUpdate;
-      }
+      throw error;
     }
-
-    this.activeTask = {
-      ...this.activeTask,
-      status: 'paused',
-      lastUpdate: `Reached the max step limit of ${this.activeTask.maxSteps}. Resume to continue.`,
-    };
-    this.config.onUpdate(this.activeTask);
-    return this.activeTask.lastUpdate;
   }
 }
 
@@ -334,6 +384,16 @@ async function planNextStep(input: {
   const body: Record<string, unknown> = {
     model: input.model,
     input: prompt,
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'task_planner_decision',
+        strict: true,
+        schema: PLANNER_RESPONSE_SCHEMA,
+      },
+    },
+    temperature: 0.2,
+    max_output_tokens: 300,
   };
 
   if (input.useWebSearch) {
@@ -361,8 +421,11 @@ async function planNextStep(input: {
       throw new Error(`Task planner failed: ${response.status} ${errorText}`.trim());
     }
 
-    const payload = (await response.json()) as { output_text?: string };
-    const rawText = String(payload.output_text ?? '').trim();
+    const payload = (await response.json()) as {
+      output_text?: string;
+      output?: Array<{ content?: Array<{ text?: string }> }>;
+    };
+    const rawText = extractResponseText(payload);
     const parsed = parsePlannerDecision(rawText);
 
     if (parsed && ['continue', 'done', 'blocked'].includes(parsed.status)) {
@@ -382,13 +445,22 @@ async function planNextStep(input: {
 
 function parsePlannerDecision(rawText: string): PlannerDecision | null {
   const trimmed = rawText.trim();
+  if (!trimmed) {
+    return null;
+  }
+
   const candidates = [
     trimmed,
     trimmed.replace(/^```json\s*/i, '').replace(/```$/i, '').trim(),
     trimmed.replace(/^```\s*/i, '').replace(/```$/i, '').trim(),
+    extractJsonObject(trimmed),
   ];
 
   for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
     try {
       return JSON.parse(candidate) as PlannerDecision;
     } catch {
@@ -397,6 +469,17 @@ function parsePlannerDecision(rawText: string): PlannerDecision | null {
   }
 
   return null;
+}
+
+function extractJsonObject(text: string) {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+
+  if (start === -1 || end === -1 || end <= start) {
+    return '';
+  }
+
+  return text.slice(start, end + 1).trim();
 }
 
 function clampMaxSteps(value: number) {

@@ -1,3 +1,4 @@
+import { extractResponseText } from './openai-response.js';
 import type { ToolDefinition } from './tool-types.js';
 
 type ThinkingConfig = {
@@ -115,9 +116,10 @@ async function sendRequest(
 
   const payload = (await response.json()) as {
     output_text?: string;
+    output?: Array<{ content?: Array<{ text?: string }> }>;
   };
 
-  const output = String(payload.output_text ?? '').trim();
+  const output = extractResponseText(payload);
 
   if (!output) {
     throw new Error('Thinking model returned no text.');

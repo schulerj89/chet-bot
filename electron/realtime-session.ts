@@ -107,8 +107,17 @@ export class RealtimeSession {
     });
 
     this.socket.on('message', async (buffer: RawData) => {
-      const payload = JSON.parse(buffer.toString()) as Record<string, unknown>;
-      await this.handleServerEvent(payload);
+      try {
+        const payload = JSON.parse(buffer.toString()) as Record<string, unknown>;
+        await this.handleServerEvent(payload);
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : 'Realtime session failed while processing an event.';
+        this.onEvent({ type: 'error', message });
+        this.onEvent({ type: 'session-status', status: 'error', detail: message });
+      }
     });
 
     this.socket.on('close', () => {
@@ -304,51 +313,62 @@ export class RealtimeSession {
     const argumentsJson = String(event.arguments ?? '{}');
     const parsedArgs = safeParseArgs(argumentsJson);
 
-    if (name === 'run_task') {
-      this.onEvent({
-        type: 'session-status',
-        status: 'thinking',
-        detail: `Working through a ${this.taskMaxSteps}-step task...`,
-      });
-      const goal = String(parsedArgs.goal ?? '').trim();
-      const maxSteps =
-        typeof parsedArgs.maxSteps === 'number' && Number.isFinite(parsedArgs.maxSteps)
-          ? parsedArgs.maxSteps
-          : undefined;
-      const output = await this.taskRunner.start(goal, maxSteps);
-      this.sendToolResult(callId, name, { ok: true, output });
-      return;
+    try {
+      if (name === 'run_task') {
+        this.onEvent({
+          type: 'session-status',
+          status: 'thinking',
+          detail: `Working through a ${this.taskMaxSteps}-step task...`,
+        });
+        const goal = String(parsedArgs.goal ?? '').trim();
+        const maxSteps =
+          typeof parsedArgs.maxSteps === 'number' && Number.isFinite(parsedArgs.maxSteps)
+            ? parsedArgs.maxSteps
+            : undefined;
+        const output = await this.taskRunner.start(goal, maxSteps);
+        this.sendToolResult(callId, name, { ok: true, output });
+        return;
+      }
+
+      if (name === 'resume_task') {
+        this.onEvent({
+          type: 'session-status',
+          status: 'thinking',
+          detail: 'Resuming task...',
+        });
+        const output = await this.taskRunner.resume();
+        this.sendToolResult(callId, name, { ok: true, output });
+        return;
+      }
+
+      if (name === 'deep_think') {
+        this.onEvent({
+          type: 'session-status',
+          status: 'thinking',
+          detail: `Thinking deeply with ${this.thinkingModel}...`,
+        });
+      }
+
+      const result = await executeToolCall(
+        {
+          callId,
+          name,
+          argumentsJson,
+        },
+        this.requestApproval,
+      );
+
+      this.sendToolResult(callId, name, result);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : `${name} failed unexpectedly.`;
+
+      this.onEvent({ type: 'error', message });
+      this.onEvent({ type: 'session-status', status: 'listening', detail: 'Listening...' });
+      this.sendToolResult(callId, name, { ok: false, output: message });
     }
-
-    if (name === 'resume_task') {
-      this.onEvent({
-        type: 'session-status',
-        status: 'thinking',
-        detail: 'Resuming task...',
-      });
-      const output = await this.taskRunner.resume();
-      this.sendToolResult(callId, name, { ok: true, output });
-      return;
-    }
-
-    if (name === 'deep_think') {
-      this.onEvent({
-        type: 'session-status',
-        status: 'thinking',
-        detail: `Thinking deeply with ${this.thinkingModel}...`,
-      });
-    }
-
-    const result = await executeToolCall(
-      {
-        callId,
-        name,
-        argumentsJson,
-      },
-      this.requestApproval,
-    );
-
-    this.sendToolResult(callId, name, result);
   }
 
   private sendToolResult(callId: string, name: string, result: Awaited<ReturnType<typeof executeToolCall>>) {
