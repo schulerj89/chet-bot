@@ -45,6 +45,7 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 - `chrome_close_tab`
 - `chrome_list_tabs`
 - `chrome_get_page`
+- `chrome_inspect_elements`
 - `chrome_navigate`
 - `chrome_click`
 - `chrome_type`

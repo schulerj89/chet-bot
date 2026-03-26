@@ -27,6 +27,7 @@ const CHROME_TOOL_NAMES = new Set([
   'chrome_close_tab',
   'chrome_list_tabs',
   'chrome_get_page',
+  'chrome_inspect_elements',
   'chrome_navigate',
   'chrome_click',
   'chrome_type',
@@ -104,6 +105,23 @@ export function getChromeToolDefinitions(): ToolDefinition[] {
           titleContains: { type: 'string', description: 'Case-insensitive title match used to pick a tab.' },
           urlContains: { type: 'string', description: 'Case-insensitive URL match used to pick a tab.' },
           port: { type: 'number', description: 'Optional remote debugging port. Defaults to 9222.' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'chrome_inspect_elements',
+      description:
+        'Inspect the current Chrome tab and return candidate interactive elements with suggested selectors.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          targetId: { type: 'string', description: 'Exact Chrome target id from chrome_list_tabs.' },
+          titleContains: { type: 'string', description: 'Case-insensitive title match used to pick a tab.' },
+          urlContains: { type: 'string', description: 'Case-insensitive URL match used to pick a tab.' },
+          port: { type: 'number', description: 'Optional remote debugging port. Defaults to 9222.' },
+          limit: { type: 'number', description: 'Maximum number of elements to return. Defaults to 40.' },
         },
       },
     },
@@ -324,6 +342,19 @@ export async function executeChromeToolCall(
 
         return JSON.stringify(page, null, 2);
       });
+    case 'chrome_inspect_elements':
+      return runTool(async () => {
+        const limit = resolveInspectLimit(args.limit);
+        const elements = await withChromePage(args, async (target) => {
+          const result = await sendChromeCommand(target, 'Runtime.evaluate', {
+            expression: buildChromeInspectElementsExpression(limit),
+            returnByValue: true,
+          });
+          return result.result?.value;
+        });
+
+        return JSON.stringify(elements, null, 2);
+      });
     case 'chrome_navigate':
       return runApprovalWrappedTool(
         request.callId,
@@ -530,6 +561,15 @@ function resolveChromeDebugPort(value: unknown) {
 function resolveTimeoutMs(value: unknown) {
   const timeout = coerceInteger(value);
   return timeout === null || timeout < 250 ? 10_000 : timeout;
+}
+
+function resolveInspectLimit(value: unknown) {
+  const limit = coerceInteger(value);
+  if (limit === null) {
+    return 40;
+  }
+
+  return Math.max(1, Math.min(limit, 100));
 }
 
 function coerceInteger(value: unknown) {
@@ -767,5 +807,86 @@ function buildChromeTypeExpression(selector: string, text: string, submit: boole
       }
     }
     return { ok: true, selector: ${JSON.stringify(selector)}, typedLength: ${text.length}, submitted: ${submit ? 'true' : 'false'} };
+  })()`;
+}
+
+function buildChromeInspectElementsExpression(limit: number) {
+  return `(() => {
+    const selectors = [
+      'input',
+      'textarea',
+      'button',
+      'select',
+      'a[href]',
+      '[role="button"]',
+      '[role="link"]',
+      '[contenteditable="true"]',
+      '[tabindex]'
+    ];
+
+    const candidates = Array.from(document.querySelectorAll(selectors.join(',')));
+    const isVisible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        rect.width > 0 &&
+        rect.height > 0;
+    };
+
+    const cssEscape = (value) => {
+      if (window.CSS && typeof window.CSS.escape === 'function') {
+        return window.CSS.escape(value);
+      }
+      return String(value).replace(/([ #;?%&,.+*~\\':"!^$\\[\\]()=>|/@])/g, '\\\\$1');
+    };
+
+    const buildSelector = (element) => {
+      if (element.id) {
+        return '#' + cssEscape(element.id);
+      }
+      const name = element.getAttribute('name');
+      if (name) {
+        return element.tagName.toLowerCase() + '[name="' + name.replace(/"/g, '\\\\"') + '"]';
+      }
+      const ariaLabel = element.getAttribute('aria-label');
+      if (ariaLabel) {
+        return element.tagName.toLowerCase() + '[aria-label="' + ariaLabel.replace(/"/g, '\\\\"') + '"]';
+      }
+      const dataTestId = element.getAttribute('data-testid') || element.getAttribute('data-test-id');
+      if (dataTestId) {
+        return '[' + 'data-testid="' + dataTestId.replace(/"/g, '\\\\"') + '"]';
+      }
+      const classes = Array.from(element.classList).filter(Boolean).slice(0, 2);
+      if (classes.length > 0) {
+        return element.tagName.toLowerCase() + '.' + classes.map(cssEscape).join('.');
+      }
+      return element.tagName.toLowerCase();
+    };
+
+    return candidates
+      .filter((element) => isVisible(element))
+      .slice(0, ${limit})
+      .map((element, index) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          index,
+          tag: element.tagName.toLowerCase(),
+          type: element.getAttribute('type') || '',
+          text: (element.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200),
+          id: element.id || '',
+          name: element.getAttribute('name') || '',
+          ariaLabel: element.getAttribute('aria-label') || '',
+          placeholder: element.getAttribute('placeholder') || '',
+          href: element.getAttribute('href') || '',
+          selector: buildSelector(element),
+          rect: {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          }
+        };
+      });
   })()`;
 }
