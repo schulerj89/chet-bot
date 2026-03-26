@@ -126,6 +126,7 @@ export class RealtimeSession {
           'If the task is simple, answer directly. If the task is bigger, guide the user step by step without overexplaining.',
           'You are allowed to use tools when they help.',
           'For codebase work in this project, prefer the run_codex tool instead of generic shell commands.',
+          'For browser work in Google Chrome, prefer the Chrome DevTools tools over mouse clicks whenever possible.',
           'Before using any tool, briefly tell the user what you are about to do in one short conversational line.',
           'Never imply that a machine-affecting action already happened before the tool succeeds.',
           'For actions that change the machine, files, settings, apps, or commands, wait for approval flow and do not pressure the user.',
@@ -270,6 +271,26 @@ export class RealtimeSession {
         output: JSON.stringify(result),
       },
     });
+
+    if (result.ok && result.attachment?.type === 'image') {
+      this.send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: `Screenshot captured from ${result.attachment.path}. Analyze the attached image.`,
+            },
+            {
+              type: 'input_image',
+              image_url: result.attachment.dataUrl,
+            },
+          ],
+        },
+      });
+    }
 
     this.send({
       type: 'response.create',
