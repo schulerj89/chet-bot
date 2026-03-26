@@ -22,12 +22,35 @@ type ApprovalRequest = {
   args: Record<string, unknown>;
 };
 
+type TaskStatus = 'idle' | 'running' | 'paused' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+
+type TaskStep = {
+  index: number;
+  title: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  message: string;
+  toolName?: string;
+};
+
+type TaskSnapshot = {
+  id: string;
+  goal: string;
+  plannerModel: string;
+  status: TaskStatus;
+  currentStep: number;
+  maxSteps: number;
+  lastUpdate: string;
+  history: TaskStep[];
+  finalAnswer?: string;
+};
+
 type RealtimeEvent =
   | { type: 'session-status'; status: SessionState; detail?: string }
   | { type: 'assistant-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'user-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'assistant-audio'; audioBase64: string }
   | { type: 'assistant-audio-reset'; reason: 'interrupt' | 'stop' }
+  | { type: 'task-update'; task: TaskSnapshot | null }
   | { type: 'approval-request'; request: ApprovalRequest }
   | { type: 'tool-result'; name: string; output: string; ok: boolean }
   | { type: 'error'; message: string };
@@ -44,7 +67,10 @@ function App() {
     voice: 'alloy',
     thinkingModel: 'gpt-5.2',
     thinkingWebSearch: false,
+    approvalMode: 'always' as 'always' | 'never',
+    taskMaxSteps: 5,
   });
+  const [task, setTask] = useState<TaskSnapshot | null>(null);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [entries, setEntries] = useState<TranscriptEntry[]>([
@@ -74,6 +100,9 @@ function App() {
 
     void bridge.getConfig().then(setConfig).catch((error: unknown) => {
       setBridgeError(error instanceof Error ? error.message : 'Unable to load desktop config.');
+    });
+    void bridge.getTask().then(setTask).catch(() => {
+      // Ignore initial task fetch errors; event stream is the primary source.
     });
 
     try {
@@ -196,6 +225,9 @@ function App() {
         return;
       case 'assistant-audio-reset':
         playerRef.current?.flush();
+        return;
+      case 'task-update':
+        setTask(event.task);
         return;
       case 'approval-request':
         appendToolEntry(
@@ -321,6 +353,18 @@ function App() {
     setApproval(null);
   }
 
+  async function pauseTask() {
+    await bridge?.pauseTask();
+  }
+
+  async function resumeTask() {
+    await bridge?.resumeTask();
+  }
+
+  async function cancelTask() {
+    await bridge?.cancelTask();
+  }
+
   return (
     <main className="app-shell">
       <section className="hero-panel">
@@ -376,6 +420,10 @@ function App() {
             <strong>{config.thinkingModel}</strong>
           </div>
           <div>
+            <span className="meta-label">Approval</span>
+            <strong>{config.approvalMode === 'never' ? 'Auto' : 'Required'}</strong>
+          </div>
+          <div>
             <span className="meta-label">API Key</span>
             <strong>{config.hasApiKey ? 'Loaded' : 'Missing'}</strong>
           </div>
@@ -383,7 +431,73 @@ function App() {
             <span className="meta-label">Web Search</span>
             <strong>{config.thinkingWebSearch ? 'Enabled' : 'Off'}</strong>
           </div>
+          <div>
+            <span className="meta-label">Task Steps</span>
+            <strong>{config.taskMaxSteps}</strong>
+          </div>
         </div>
+
+        {task ? (
+          <section className="task-panel">
+            <div className="task-panel-header">
+              <div>
+                <p className="eyebrow">Active Task</p>
+                <h2>{task.goal}</h2>
+              </div>
+              <span className={`task-status task-status-${task.status}`}>{task.status}</span>
+            </div>
+            <div className="task-meta">
+              <div>
+                <span className="meta-label">Planner</span>
+                <strong>{task.plannerModel}</strong>
+              </div>
+              <div>
+                <span className="meta-label">Step</span>
+                <strong>
+                  {task.currentStep}/{task.maxSteps}
+                </strong>
+              </div>
+            </div>
+            <p className="task-update">{task.lastUpdate}</p>
+            {task.finalAnswer ? <p className="task-final">{task.finalAnswer}</p> : null}
+            <div className="task-actions">
+              <button
+                className="secondary-button"
+                onClick={pauseTask}
+                disabled={task.status !== 'running'}
+              >
+                Pause
+              </button>
+              <button
+                className="secondary-button"
+                onClick={resumeTask}
+                disabled={task.status !== 'paused'}
+              >
+                Resume
+              </button>
+              <button
+                className="secondary-button"
+                onClick={cancelTask}
+                disabled={task.status === 'completed' || task.status === 'cancelled'}
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="task-history">
+              {task.history.map((step) => (
+                <article key={`${task.id}-${step.index}`} className={`task-step task-step-${step.status}`}>
+                  <div className="task-step-header">
+                    <strong>
+                      {step.index}. {step.title}
+                    </strong>
+                    <span>{step.status}</span>
+                  </div>
+                  <p>{step.message}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </section>
 
       <section className="transcript-panel">

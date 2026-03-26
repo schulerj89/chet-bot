@@ -33,6 +33,21 @@ export async function runThinkingModel(
   prompt: string,
   config: ThinkingConfig,
 ): Promise<ThinkingResult> {
+  const primaryBody = buildRequestBody(prompt, config, config.useWebSearch);
+
+  try {
+    return await requestWithRetries(primaryBody, config.apiKey, 2);
+  } catch (error) {
+    if (!config.useWebSearch) {
+      throw error;
+    }
+
+    const fallbackBody = buildRequestBody(prompt, config, false);
+    return requestWithRetries(fallbackBody, config.apiKey, 1);
+  }
+}
+
+function buildRequestBody(prompt: string, config: ThinkingConfig, useWebSearch: boolean) {
   const body: Record<string, unknown> = {
     model: config.model,
     input: prompt,
@@ -46,25 +61,49 @@ export async function runThinkingModel(
     ].join(' '),
   };
 
-  if (config.useWebSearch) {
-    body.tools = [
-      {
-        type: 'web_search',
-        user_location: {
-          type: 'approximate',
-          country: 'US',
-          timezone: 'America/Chicago',
-        },
-      },
-    ];
+  if (useWebSearch) {
+    body.tools = [{ type: 'web_search' }];
     body.tool_choice = 'auto';
   }
 
+  return body;
+}
+
+async function requestWithRetries(
+  body: Record<string, unknown>,
+  apiKey: string,
+  retries: number,
+): Promise<ThinkingResult> {
+  let attempt = 0;
+  let lastError: Error | null = null;
+
+  while (attempt <= retries) {
+    try {
+      return await sendRequest(body, apiKey);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown thinking model error.');
+      attempt += 1;
+
+      if (attempt > retries || !isRetryableThinkingError(lastError)) {
+        throw lastError;
+      }
+
+      await delay(400 * attempt);
+    }
+  }
+
+  throw lastError ?? new Error('Thinking model request failed.');
+}
+
+async function sendRequest(
+  body: Record<string, unknown>,
+  apiKey: string,
+): Promise<ThinkingResult> {
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
   });
@@ -85,4 +124,18 @@ export async function runThinkingModel(
   }
 
   return { output };
+}
+
+function isRetryableThinkingError(error: Error) {
+  return (
+    error.message.includes('Thinking model request failed: 500') ||
+    error.message.includes('Thinking model request failed: 502') ||
+    error.message.includes('Thinking model request failed: 503') ||
+    error.message.includes('Thinking model request failed: 504') ||
+    error.message.includes('fetch failed')
+  );
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

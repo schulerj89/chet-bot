@@ -24,8 +24,10 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 1. Copy `.env.example` to `.env`.
 2. Set `OPENAI_API_KEY`.
 3. Optionally set `OPENAI_THINKING_MODEL` for deeper reasoning and `OPENAI_THINKING_USE_WEB_SEARCH=true` for current-info tasks.
-4. Run `npm install`.
-5. Run `npm run dev`.
+4. Set `CHET_APPROVAL_MODE=never` if you want autonomous tool execution without approval prompts.
+5. Optionally set `CHET_TASK_MAX_STEPS` to control the multi-step task planner limit.
+6. Run `npm install`.
+7. Run `npm run dev`.
 
 ## Available tools
 
@@ -42,6 +44,8 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 - `run_powershell`
 - `run_codex`
 - `deep_think`
+- `run_task`
+- `resume_task`
 - `launch_chrome_debug`
 - `chrome_new_tab`
 - `chrome_close_tab`
@@ -58,6 +62,7 @@ Voice-first desktop assistant for Windows using Electron and OpenAI Realtime.
 ## Safety
 
 - File writes, window focus, typing, mouse clicks, browser launches, app launches, and PowerShell execution require approval.
+- Set `CHET_APPROVAL_MODE=never` to bypass approval prompts and let Chet execute tool calls autonomously.
 - The current implementation is Windows-first and intentionally conservative.
 
 ## Build

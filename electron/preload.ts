@@ -1,9 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { RendererEvent } from './realtime-session.js';
+import type { TaskSnapshot } from './task-runner.js';
 
 type DesktopApi = {
   startSession: () => Promise<{ ok: boolean; message?: string }>;
   stopSession: () => Promise<void>;
+  getTask: () => Promise<TaskSnapshot | null>;
+  pauseTask: () => Promise<void>;
+  resumeTask: () => Promise<string>;
+  cancelTask: () => Promise<void>;
   sendAudioChunk: (audioBase64: string) => void;
   resolveApproval: (approvalId: string, approved: boolean) => void;
   onEvent: (callback: (event: RendererEvent) => void) => () => void;
@@ -13,6 +18,8 @@ type DesktopApi = {
     voice: string;
     thinkingModel: string;
     thinkingWebSearch: boolean;
+    approvalMode: 'always' | 'never';
+    taskMaxSteps: number;
   }>;
   getImageDataUrl: (filePath: string) => Promise<string>;
 };
@@ -20,6 +27,10 @@ type DesktopApi = {
 const api: DesktopApi = {
   startSession: () => ipcRenderer.invoke('session:start'),
   stopSession: () => ipcRenderer.invoke('session:stop'),
+  getTask: () => ipcRenderer.invoke('task:get'),
+  pauseTask: () => ipcRenderer.invoke('task:pause'),
+  resumeTask: () => ipcRenderer.invoke('task:resume'),
+  cancelTask: () => ipcRenderer.invoke('task:cancel'),
   sendAudioChunk: (audioBase64) => {
     ipcRenderer.send('session:audio-chunk', audioBase64);
   },

@@ -1,5 +1,7 @@
+import crypto from 'node:crypto';
 import WebSocket, { type RawData } from 'ws';
 import { executeToolCall, getToolDefinitions, type ApprovalRequest } from './tooling.js';
+import { getTaskToolDefinitions, TaskRunner, type TaskSnapshot } from './task-runner.js';
 
 export type RendererEvent =
   | { type: 'session-status'; status: SessionStatus; detail?: string }
@@ -7,6 +9,7 @@ export type RendererEvent =
   | { type: 'user-transcript'; text: string; itemId?: string; final?: boolean }
   | { type: 'assistant-audio'; audioBase64: string }
   | { type: 'assistant-audio-reset'; reason: 'interrupt' | 'stop' }
+  | { type: 'task-update'; task: TaskSnapshot | null }
   | { type: 'approval-request'; request: ApprovalRequest }
   | { type: 'tool-result'; name: string; output: string; ok: boolean }
   | { type: 'error'; message: string };
@@ -25,6 +28,8 @@ type SessionConfig = {
   model: string;
   voice: string;
   thinkingModel: string;
+  thinkingWebSearch: boolean;
+  taskMaxSteps: number;
   onEvent: (event: RendererEvent) => void;
   requestApproval: (request: ApprovalRequest) => Promise<boolean>;
 };
@@ -34,8 +39,11 @@ export class RealtimeSession {
   private readonly model: string;
   private readonly voice: string;
   private readonly thinkingModel: string;
+  private readonly thinkingWebSearch: boolean;
+  private readonly taskMaxSteps: number;
   private readonly onEvent: (event: RendererEvent) => void;
   private readonly requestApproval: (request: ApprovalRequest) => Promise<boolean>;
+  private readonly taskRunner: TaskRunner;
   private socket: WebSocket | null = null;
   private connected = false;
   private responseTranscript = '';
@@ -46,8 +54,29 @@ export class RealtimeSession {
     this.model = config.model;
     this.voice = config.voice;
     this.thinkingModel = config.thinkingModel;
+    this.thinkingWebSearch = config.thinkingWebSearch;
+    this.taskMaxSteps = config.taskMaxSteps;
     this.onEvent = config.onEvent;
     this.requestApproval = config.requestApproval;
+    this.taskRunner = new TaskRunner({
+      apiKey: this.apiKey,
+      plannerModel: this.thinkingModel,
+      useWebSearch: this.thinkingWebSearch,
+      maxSteps: this.taskMaxSteps,
+      toolDefinitions: getToolDefinitions(),
+      onUpdate: (task) => {
+        this.onEvent({ type: 'task-update', task });
+      },
+      executeTool: async (name, args) =>
+        executeToolCall(
+          {
+            callId: crypto.randomUUID(),
+            name,
+            argumentsJson: JSON.stringify(args),
+          },
+          this.requestApproval,
+        ),
+    });
   }
 
   connect() {
@@ -72,6 +101,7 @@ export class RealtimeSession {
         status: 'listening',
         detail: 'Microphone is live.',
       });
+      this.onEvent({ type: 'task-update', task: this.taskRunner.getActiveTask() });
     });
 
     this.socket.on('message', async (buffer: RawData) => {
@@ -116,6 +146,23 @@ export class RealtimeSession {
     });
   }
 
+  pauseTask() {
+    this.taskRunner.pause();
+  }
+
+  cancelTask() {
+    this.taskRunner.cancel();
+    this.onEvent({ type: 'task-update', task: this.taskRunner.getActiveTask() });
+  }
+
+  async resumeTask() {
+    return this.taskRunner.resume();
+  }
+
+  getTask() {
+    return this.taskRunner.getActiveTask();
+  }
+
   private updateSession() {
     this.send({
       type: 'session.update',
@@ -129,9 +176,10 @@ export class RealtimeSession {
           'If the task is simple, answer directly. If the task is bigger, guide the user step by step without overexplaining.',
           'You are allowed to use tools when they help.',
           `For deeper reasoning, difficult recommendations, current-info research, or multi-step planning, use the deep_think tool backed by ${this.thinkingModel}.`,
+          `For larger autonomous goals that need several tool calls, use run_task with up to ${this.taskMaxSteps} steps.`,
           'For codebase work in this project, prefer the run_codex tool instead of generic shell commands.',
           'For browser work in Google Chrome, prefer the Chrome DevTools tools over mouse clicks whenever possible.',
-          'Before using deep_think, tell the user briefly that you need a second to think.',
+          'Before using deep_think or run_task, tell the user briefly that you need a second to think.',
           'Before using any tool, briefly tell the user what you are about to do in one short conversational line.',
           'Never imply that a machine-affecting action already happened before the tool succeeds.',
           'For actions that change the machine, files, settings, apps, or commands, wait for approval flow and do not pressure the user.',
@@ -148,7 +196,7 @@ export class RealtimeSession {
           create_response: true,
           interrupt_response: true,
         },
-        tools: getToolDefinitions(),
+        tools: [...getToolDefinitions(), ...getTaskToolDefinitions(this.taskMaxSteps)],
       },
     });
   }
@@ -251,6 +299,34 @@ export class RealtimeSession {
     const callId = String(event.call_id ?? '');
     const name = String(event.name ?? '');
     const argumentsJson = String(event.arguments ?? '{}');
+    const parsedArgs = safeParseArgs(argumentsJson);
+
+    if (name === 'run_task') {
+      this.onEvent({
+        type: 'session-status',
+        status: 'thinking',
+        detail: `Working through a ${this.taskMaxSteps}-step task...`,
+      });
+      const goal = String(parsedArgs.goal ?? '').trim();
+      const maxSteps =
+        typeof parsedArgs.maxSteps === 'number' && Number.isFinite(parsedArgs.maxSteps)
+          ? parsedArgs.maxSteps
+          : undefined;
+      const output = await this.taskRunner.start(goal, maxSteps);
+      this.sendToolResult(callId, name, { ok: true, output });
+      return;
+    }
+
+    if (name === 'resume_task') {
+      this.onEvent({
+        type: 'session-status',
+        status: 'thinking',
+        detail: 'Resuming task...',
+      });
+      const output = await this.taskRunner.resume();
+      this.sendToolResult(callId, name, { ok: true, output });
+      return;
+    }
 
     if (name === 'deep_think') {
       this.onEvent({
@@ -269,6 +345,10 @@ export class RealtimeSession {
       this.requestApproval,
     );
 
+    this.sendToolResult(callId, name, result);
+  }
+
+  private sendToolResult(callId: string, name: string, result: Awaited<ReturnType<typeof executeToolCall>>) {
     this.onEvent({
       type: 'tool-result',
       name,
@@ -335,5 +415,14 @@ export class RealtimeSession {
     });
     this.responseTranscript = '';
     this.activeAssistantItemId = undefined;
+  }
+}
+
+function safeParseArgs(argumentsJson: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(argumentsJson);
+    return typeof parsed === 'object' && parsed !== null ? parsed : {};
+  } catch {
+    return {};
   }
 }

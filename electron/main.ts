@@ -52,10 +52,18 @@ function getEnvConfig() {
     voice: process.env.OPENAI_REALTIME_VOICE ?? 'alloy',
     thinkingModel: process.env.OPENAI_THINKING_MODEL ?? 'gpt-5.2',
     thinkingWebSearch: /^(1|true|yes)$/i.test(process.env.OPENAI_THINKING_USE_WEB_SEARCH ?? ''),
+    approvalMode: /^(never|auto)$/i.test(process.env.CHET_APPROVAL_MODE ?? '') ? 'never' : 'always',
+    taskMaxSteps: Math.max(1, Math.min(Number(process.env.CHET_TASK_MAX_STEPS ?? '5') || 5, 12)),
   };
 }
 
 function requestApproval(request: ApprovalRequest) {
+  const config = getEnvConfig();
+
+  if (config.approvalMode === 'never') {
+    return Promise.resolve(true);
+  }
+
   return new Promise<boolean>((resolve) => {
     pendingApprovals.set(request.id, resolve);
     sendRendererEvent({ type: 'approval-request', request });
@@ -73,6 +81,8 @@ app.whenReady().then(() => {
       voice: config.voice,
       thinkingModel: config.thinkingModel,
       thinkingWebSearch: config.thinkingWebSearch,
+      approvalMode: config.approvalMode,
+      taskMaxSteps: config.taskMaxSteps,
     };
   });
 
@@ -115,6 +125,8 @@ app.whenReady().then(() => {
       model: config.model,
       voice: config.voice,
       thinkingModel: config.thinkingModel,
+      thinkingWebSearch: config.thinkingWebSearch,
+      taskMaxSteps: config.taskMaxSteps,
       onEvent: sendRendererEvent,
       requestApproval,
     });
@@ -137,6 +149,17 @@ app.whenReady().then(() => {
       status: 'stopped',
       detail: 'Conversation stopped.',
     });
+  });
+
+  ipcMain.handle('task:get', async () => realtimeSession?.getTask() ?? null);
+  ipcMain.handle('task:pause', async () => {
+    realtimeSession?.pauseTask();
+  });
+  ipcMain.handle('task:resume', async () => {
+    return realtimeSession?.resumeTask() ?? 'No task available.';
+  });
+  ipcMain.handle('task:cancel', async () => {
+    realtimeSession?.cancelTask();
   });
 
   ipcMain.on('session:audio-chunk', (_event, audioBase64: string) => {
