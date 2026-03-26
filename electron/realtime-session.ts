@@ -30,6 +30,7 @@ type SessionConfig = {
   thinkingModel: string;
   thinkingWebSearch: boolean;
   taskMaxSteps: number;
+  initialTask?: TaskSnapshot | null;
   onEvent: (event: RendererEvent) => void;
   requestApproval: (request: ApprovalRequest) => Promise<boolean>;
 };
@@ -64,6 +65,7 @@ export class RealtimeSession {
       useWebSearch: this.thinkingWebSearch,
       maxSteps: this.taskMaxSteps,
       toolDefinitions: getToolDefinitions(),
+      initialTask: config.initialTask ?? null,
       onUpdate: (task) => {
         this.onEvent({ type: 'task-update', task });
       },
@@ -177,6 +179,7 @@ export class RealtimeSession {
           'You are allowed to use tools when they help.',
           `For deeper reasoning, difficult recommendations, current-info research, or multi-step planning, use the deep_think tool backed by ${this.thinkingModel}.`,
           `For larger autonomous goals that need several tool calls, use run_task with up to ${this.taskMaxSteps} steps.`,
+          'Use run_task when the job likely needs more than one tool call, comparisons, retries, or ongoing progress tracking.',
           'For codebase work in this project, prefer the run_codex tool instead of generic shell commands.',
           'For browser work in Google Chrome, prefer the Chrome DevTools tools over mouse clicks whenever possible.',
           'Before using deep_think or run_task, tell the user briefly that you need a second to think.',

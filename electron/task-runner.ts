@@ -45,6 +45,7 @@ type TaskRunnerConfig = {
   useWebSearch: boolean;
   maxSteps: number;
   toolDefinitions: ToolDefinition[];
+  initialTask?: TaskSnapshot | null;
   onUpdate: (snapshot: TaskSnapshot) => void;
   executeTool: (name: string, args: Record<string, unknown>) => Promise<ToolExecutionResult>;
 };
@@ -93,6 +94,8 @@ export class TaskRunner {
 
   constructor(config: TaskRunnerConfig) {
     this.config = config;
+    this.activeTask = config.initialTask ?? null;
+    this.paused = Boolean(this.activeTask && this.activeTask.status === 'paused');
   }
 
   getActiveTask() {
@@ -226,6 +229,16 @@ export class TaskRunner {
         throw new Error(this.activeTask.lastUpdate);
       }
 
+      if (['run_task', 'resume_task', 'deep_think'].includes(toolName)) {
+        this.activeTask = {
+          ...this.activeTask,
+          status: 'failed',
+          lastUpdate: `Planner selected an invalid tool for task execution: ${toolName}.`,
+        };
+        this.config.onUpdate(this.activeTask);
+        throw new Error(this.activeTask.lastUpdate);
+      }
+
       const step: TaskStep = {
         index: nextStepNumber,
         title: decision.stepTitle?.trim() || `Step ${nextStepNumber}`,
@@ -328,29 +341,43 @@ async function planNextStep(input: {
     body.tool_choice = 'auto';
   }
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${input.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${input.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Task planner failed: ${response.status} ${errorText}`.trim());
-  }
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (attempt === 0 && response.status >= 500) {
+        await delay(350);
+        continue;
+      }
 
-  const payload = (await response.json()) as { output_text?: string };
-  const rawText = String(payload.output_text ?? '').trim();
-  const parsed = parsePlannerDecision(rawText);
+      throw new Error(`Task planner failed: ${response.status} ${errorText}`.trim());
+    }
 
-  if (!parsed || !['continue', 'done', 'blocked'].includes(parsed.status)) {
+    const payload = (await response.json()) as { output_text?: string };
+    const rawText = String(payload.output_text ?? '').trim();
+    const parsed = parsePlannerDecision(rawText);
+
+    if (parsed && ['continue', 'done', 'blocked'].includes(parsed.status)) {
+      return parsed;
+    }
+
+    if (attempt === 0) {
+      await delay(200);
+      continue;
+    }
+
     throw new Error(`Task planner returned invalid JSON: ${rawText}`);
   }
 
-  return parsed;
+  throw new Error('Task planner failed after retries.');
 }
 
 function parsePlannerDecision(rawText: string): PlannerDecision | null {
@@ -378,4 +405,8 @@ function clampMaxSteps(value: number) {
 
 function truncateText(text: string, limit: number) {
   return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

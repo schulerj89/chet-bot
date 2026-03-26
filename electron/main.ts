@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RealtimeSession, type RendererEvent } from './realtime-session.js';
+import type { TaskSnapshot } from './task-runner.js';
 import type { ApprovalRequest } from './tooling.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -13,6 +14,11 @@ const isDev = Boolean(rendererUrl);
 let mainWindow: BrowserWindow | null = null;
 let realtimeSession: RealtimeSession | null = null;
 const pendingApprovals = new Map<string, (approved: boolean) => void>();
+let persistedTask: TaskSnapshot | null = null;
+
+function getTaskStatePath() {
+  return path.join(app.getPath('userData'), 'active-task.json');
+}
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -42,6 +48,11 @@ function createMainWindow() {
 }
 
 function sendRendererEvent(event: RendererEvent) {
+  if (event.type === 'task-update') {
+    persistedTask = normalizePersistedTask(event.task);
+    void saveTaskState(persistedTask);
+  }
+
   mainWindow?.webContents.send('session:event', event);
 }
 
@@ -70,7 +81,54 @@ function requestApproval(request: ApprovalRequest) {
   });
 }
 
-app.whenReady().then(() => {
+async function loadTaskState() {
+  try {
+    const raw = await fs.readFile(getTaskStatePath(), 'utf8');
+    const parsed = JSON.parse(raw) as TaskSnapshot;
+    persistedTask = normalizePersistedTask(parsed);
+  } catch {
+    persistedTask = null;
+  }
+}
+
+async function saveTaskState(task: TaskSnapshot | null) {
+  const taskStatePath = getTaskStatePath();
+
+  if (!task) {
+    try {
+      await fs.rm(taskStatePath, { force: true });
+    } catch {
+      // Ignore cleanup errors.
+    }
+    return;
+  }
+
+  await fs.mkdir(path.dirname(taskStatePath), { recursive: true });
+  await fs.writeFile(taskStatePath, JSON.stringify(task, null, 2), 'utf8');
+}
+
+function normalizePersistedTask(task: TaskSnapshot | null): TaskSnapshot | null {
+  if (!task) {
+    return null;
+  }
+
+  if (task.status === 'running' || task.status === 'waiting_approval') {
+    return {
+      ...task,
+      status: 'paused' as const,
+      lastUpdate: 'Task was interrupted and can be resumed.',
+    };
+  }
+
+  if (task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed') {
+    return null;
+  }
+
+  return task;
+}
+
+app.whenReady().then(async () => {
+  await loadTaskState();
   createMainWindow();
 
   ipcMain.handle('session:config', () => {
@@ -127,6 +185,7 @@ app.whenReady().then(() => {
       thinkingModel: config.thinkingModel,
       thinkingWebSearch: config.thinkingWebSearch,
       taskMaxSteps: config.taskMaxSteps,
+      initialTask: persistedTask,
       onEvent: sendRendererEvent,
       requestApproval,
     });
@@ -151,7 +210,7 @@ app.whenReady().then(() => {
     });
   });
 
-  ipcMain.handle('task:get', async () => realtimeSession?.getTask() ?? null);
+  ipcMain.handle('task:get', async () => realtimeSession?.getTask() ?? persistedTask);
   ipcMain.handle('task:pause', async () => {
     realtimeSession?.pauseTask();
   });
