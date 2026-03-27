@@ -67,6 +67,10 @@ function App() {
     voice: 'alloy',
     thinkingModel: 'gpt-5.2',
     thinkingWebSearch: false,
+    thinkingMaxInputTokens: 2000,
+    thinkingMaxOutputTokens: 2000,
+    plannerMaxInputTokens: 2000,
+    plannerMaxOutputTokens: 2000,
     approvalMode: 'always' as 'always' | 'never',
     taskMaxSteps: 5,
   });
@@ -87,6 +91,7 @@ function App() {
   const playerRef = useRef<PcmAudioPlayer | null>(null);
   const transcriptListRef = useRef<HTMLDivElement | null>(null);
   const entryOrderRef = useRef(1);
+  const lastTaskAnnouncementRef = useRef('');
 
   useEffect(() => {
     if (!bridge) {
@@ -228,6 +233,7 @@ function App() {
         return;
       case 'task-update':
         setTask(event.task);
+        announceTaskUpdate(event.task);
         return;
       case 'approval-request':
         appendToolEntry(
@@ -270,6 +276,32 @@ function App() {
       ...current,
       nextEntry,
     ].sort((left, right) => left.order - right.order));
+  }
+
+  function announceTaskUpdate(nextTask: TaskSnapshot | null) {
+    if (!nextTask) {
+      lastTaskAnnouncementRef.current = '';
+      return;
+    }
+
+    const activeStep =
+      nextTask.history.find((step) => step.status === 'running') ??
+      nextTask.history[nextTask.history.length - 1];
+    const summary = [
+      nextTask.status,
+      `${nextTask.currentStep}/${nextTask.maxSteps}`,
+      activeStep?.title ?? '',
+      nextTask.lastUpdate,
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    if (summary === lastTaskAnnouncementRef.current) {
+      return;
+    }
+
+    lastTaskAnnouncementRef.current = summary;
+    appendSystemMessage(`Task update: ${summary}`);
   }
 
   async function appendToolEntry(
@@ -365,6 +397,9 @@ function App() {
     await bridge?.cancelTask();
   }
 
+  const activeStep =
+    task?.history.find((step) => step.status === 'running') ?? task?.history[task.history.length - 1];
+
   return (
     <main className="app-shell">
       <section className="hero-panel">
@@ -432,6 +467,18 @@ function App() {
             <strong>{config.thinkingWebSearch ? 'Enabled' : 'Off'}</strong>
           </div>
           <div>
+            <span className="meta-label">Think Tokens</span>
+            <strong>
+              {config.thinkingMaxInputTokens}/{config.thinkingMaxOutputTokens}
+            </strong>
+          </div>
+          <div>
+            <span className="meta-label">Planner Tokens</span>
+            <strong>
+              {config.plannerMaxInputTokens}/{config.plannerMaxOutputTokens}
+            </strong>
+          </div>
+          <div>
             <span className="meta-label">Task Steps</span>
             <strong>{config.taskMaxSteps}</strong>
           </div>
@@ -456,6 +503,10 @@ function App() {
                 <strong>
                   {task.currentStep}/{task.maxSteps}
                 </strong>
+              </div>
+              <div>
+                <span className="meta-label">Current</span>
+                <strong>{activeStep ? `${activeStep.index}. ${activeStep.title}` : 'Planning'}</strong>
               </div>
             </div>
             <p className="task-update">{task.lastUpdate}</p>

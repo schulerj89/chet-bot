@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { executeChromeToolCall, getChromeToolDefinitions, isChromeToolName } from './chrome-tools.js';
 import { getThinkingToolDefinition, runThinkingModel } from './thinking-model.js';
+import { resolveTokenLimit } from './token-limits.js';
 import type { ApprovalRequest, ToolCallRequest, ToolDefinition, ToolExecutionResult } from './tool-types.js';
 
 const execFileAsync = promisify(execFile);
@@ -404,6 +405,8 @@ export async function executeToolCall(
           apiKey: process.env.OPENAI_API_KEY ?? '',
           model: process.env.OPENAI_THINKING_MODEL?.trim() || 'gpt-5.2',
           useWebSearch: /^(1|true|yes)$/i.test(process.env.OPENAI_THINKING_USE_WEB_SEARCH ?? ''),
+          maxInputTokens: resolveTokenLimit(process.env.OPENAI_THINKING_MAX_INPUT_TOKENS, 2000),
+          maxOutputTokens: resolveTokenLimit(process.env.OPENAI_THINKING_MAX_OUTPUT_TOKENS, 2000),
         });
         return result.output;
       });

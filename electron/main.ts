@@ -63,6 +63,22 @@ function getEnvConfig() {
     voice: process.env.OPENAI_REALTIME_VOICE ?? 'alloy',
     thinkingModel: process.env.OPENAI_THINKING_MODEL ?? 'gpt-5.2',
     thinkingWebSearch: /^(1|true|yes)$/i.test(process.env.OPENAI_THINKING_USE_WEB_SEARCH ?? ''),
+    thinkingMaxInputTokens: Math.max(
+      100,
+      Math.min(Number(process.env.OPENAI_THINKING_MAX_INPUT_TOKENS ?? '2000') || 2000, 8000),
+    ),
+    thinkingMaxOutputTokens: Math.max(
+      100,
+      Math.min(Number(process.env.OPENAI_THINKING_MAX_OUTPUT_TOKENS ?? '2000') || 2000, 8000),
+    ),
+    plannerMaxInputTokens: Math.max(
+      100,
+      Math.min(Number(process.env.OPENAI_TASK_PLANNER_MAX_INPUT_TOKENS ?? '2000') || 2000, 8000),
+    ),
+    plannerMaxOutputTokens: Math.max(
+      100,
+      Math.min(Number(process.env.OPENAI_TASK_PLANNER_MAX_OUTPUT_TOKENS ?? '2000') || 2000, 8000),
+    ),
     approvalMode: /^(never|auto)$/i.test(process.env.CHET_APPROVAL_MODE ?? '') ? 'never' : 'always',
     taskMaxSteps: Math.max(1, Math.min(Number(process.env.CHET_TASK_MAX_STEPS ?? '5') || 5, 12)),
   };
@@ -139,6 +155,10 @@ app.whenReady().then(async () => {
       voice: config.voice,
       thinkingModel: config.thinkingModel,
       thinkingWebSearch: config.thinkingWebSearch,
+      thinkingMaxInputTokens: config.thinkingMaxInputTokens,
+      thinkingMaxOutputTokens: config.thinkingMaxOutputTokens,
+      plannerMaxInputTokens: config.plannerMaxInputTokens,
+      plannerMaxOutputTokens: config.plannerMaxOutputTokens,
       approvalMode: config.approvalMode,
       taskMaxSteps: config.taskMaxSteps,
     };

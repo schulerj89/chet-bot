@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import WebSocket, { type RawData } from 'ws';
+import { resolveTokenLimit } from './token-limits.js';
 import { executeToolCall, getToolDefinitions, type ApprovalRequest } from './tooling.js';
 import { getTaskToolDefinitions, TaskRunner, type TaskSnapshot } from './task-runner.js';
 
@@ -64,6 +65,8 @@ export class RealtimeSession {
       plannerModel: this.thinkingModel,
       useWebSearch: this.thinkingWebSearch,
       maxSteps: this.taskMaxSteps,
+      maxInputTokens: resolveTokenLimit(process.env.OPENAI_TASK_PLANNER_MAX_INPUT_TOKENS, 2000),
+      maxOutputTokens: resolveTokenLimit(process.env.OPENAI_TASK_PLANNER_MAX_OUTPUT_TOKENS, 2000),
       toolDefinitions: getToolDefinitions(),
       initialTask: config.initialTask ?? null,
       onUpdate: (task) => {
@@ -72,7 +75,7 @@ export class RealtimeSession {
           this.onEvent({
             type: 'session-status',
             status: 'thinking',
-            detail: task.lastUpdate,
+            detail: `Step ${Math.min(task.currentStep + 1, task.maxSteps)} of ${task.maxSteps}: ${task.lastUpdate}`,
           });
           return;
         }

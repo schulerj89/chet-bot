@@ -1,10 +1,13 @@
 import { extractResponseText } from './openai-response.js';
+import { capTextToApproxTokens } from './token-limits.js';
 import type { ToolDefinition } from './tool-types.js';
 
 type ThinkingConfig = {
   apiKey: string;
   model: string;
   useWebSearch: boolean;
+  maxInputTokens: number;
+  maxOutputTokens: number;
 };
 
 type ThinkingResult = {
@@ -49,9 +52,10 @@ export async function runThinkingModel(
 }
 
 function buildRequestBody(prompt: string, config: ThinkingConfig, useWebSearch: boolean) {
+  const cappedPrompt = capTextToApproxTokens(prompt, config.maxInputTokens);
   const body: Record<string, unknown> = {
     model: config.model,
-    input: prompt,
+    input: cappedPrompt,
     instructions: [
       'You are a high-judgment helper model supporting a realtime voice assistant.',
       'Think carefully and return only the useful final answer for the assistant to say or paraphrase.',
@@ -60,6 +64,7 @@ function buildRequestBody(prompt: string, config: ThinkingConfig, useWebSearch: 
       'If the request is a recommendation or requires tradeoffs, give a clear recommendation and brief reasoning.',
       'Do not mention internal tool names, hidden reasoning, or implementation details.',
     ].join(' '),
+    max_output_tokens: config.maxOutputTokens,
   };
 
   if (useWebSearch) {

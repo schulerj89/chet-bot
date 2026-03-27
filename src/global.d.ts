@@ -56,6 +56,10 @@ type DesktopApi = {
     voice: string;
     thinkingModel: string;
     thinkingWebSearch: boolean;
+    thinkingMaxInputTokens: number;
+    thinkingMaxOutputTokens: number;
+    plannerMaxInputTokens: number;
+    plannerMaxOutputTokens: number;
     approvalMode: 'always' | 'never';
     taskMaxSteps: number;
   }>;

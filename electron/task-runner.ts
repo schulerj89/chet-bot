@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { extractResponseText } from './openai-response.js';
+import { capTextToApproxTokens } from './token-limits.js';
 import type { ToolDefinition, ToolExecutionResult } from './tool-types.js';
 
 export type TaskStatus =
@@ -49,22 +50,22 @@ const PLANNER_RESPONSE_SCHEMA = {
       enum: ['continue', 'done', 'blocked'],
     },
     stepTitle: {
-      type: 'string',
+      type: ['string', 'null'],
     },
     messageForUser: {
-      type: 'string',
+      type: ['string', 'null'],
     },
     toolName: {
-      type: 'string',
+      type: ['string', 'null'],
     },
     toolArgsJson: {
-      type: 'string',
+      type: ['string', 'null'],
     },
     finalAnswer: {
-      type: 'string',
+      type: ['string', 'null'],
     },
   },
-  required: ['status'],
+  required: ['status', 'stepTitle', 'messageForUser', 'toolName', 'toolArgsJson', 'finalAnswer'],
 } as const;
 
 type TaskRunnerConfig = {
@@ -72,6 +73,8 @@ type TaskRunnerConfig = {
   plannerModel: string;
   useWebSearch: boolean;
   maxSteps: number;
+  maxInputTokens: number;
+  maxOutputTokens: number;
   toolDefinitions: ToolDefinition[];
   initialTask?: TaskSnapshot | null;
   onUpdate: (snapshot: TaskSnapshot) => void;
@@ -211,6 +214,12 @@ export class TaskRunner {
         }
 
         const nextStepNumber: number = this.activeTask.currentStep + 1;
+        this.activeTask = {
+          ...this.activeTask,
+          lastUpdate: `Planning step ${nextStepNumber} of ${this.activeTask.maxSteps}...`,
+        };
+        this.config.onUpdate(this.activeTask);
+
         const decision = await planNextStep({
           apiKey: this.config.apiKey,
           model: this.config.plannerModel,
@@ -218,6 +227,8 @@ export class TaskRunner {
           goal: this.activeTask.goal,
           currentStep: nextStepNumber,
           maxSteps: this.activeTask.maxSteps,
+          maxInputTokens: this.config.maxInputTokens,
+          maxOutputTokens: this.config.maxOutputTokens,
           history: this.activeTask.history,
           toolDefinitions: this.config.toolDefinitions,
         });
@@ -278,7 +289,7 @@ export class TaskRunner {
         this.activeTask = {
           ...this.activeTask,
           currentStep: nextStepNumber,
-          lastUpdate: step.message,
+          lastUpdate: `${step.message} Using ${toolName}.`,
           history: [...this.activeTask.history, step],
         };
         this.config.onUpdate(this.activeTask);
@@ -339,6 +350,8 @@ async function planNextStep(input: {
   goal: string;
   currentStep: number;
   maxSteps: number;
+  maxInputTokens: number;
+  maxOutputTokens: number;
   history: TaskStep[];
   toolDefinitions: ToolDefinition[];
 }): Promise<PlannerDecision> {
@@ -377,10 +390,11 @@ async function planNextStep(input: {
     '- Prefer the Chrome tools for browser work.',
     '- Prefer concise user-facing updates.',
   ].join('\n');
+  const cappedPrompt = capTextToApproxTokens(prompt, input.maxInputTokens);
 
   const body: Record<string, unknown> = {
     model: input.model,
-    input: prompt,
+    input: cappedPrompt,
     text: {
       format: {
         type: 'json_schema',
@@ -390,7 +404,7 @@ async function planNextStep(input: {
       },
     },
     temperature: 0.2,
-    max_output_tokens: 300,
+    max_output_tokens: input.maxOutputTokens,
   };
 
   if (input.useWebSearch) {
